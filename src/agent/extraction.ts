@@ -100,10 +100,20 @@ export async function extractMemoriesFromMessages(params: {
     })
     .join("\n");
 
+  // Determine the date of this conversation window for the extraction prompt.
+  const conversationDate = eligible
+    .map((m) => m.timestamp)
+    .filter((ts): ts is string => typeof ts === "string" && ts.length > 0)
+    .sort()
+    .at(-1)
+    ?.slice(0, 10) // YYYY-MM-DD
+    ?? new Date().toISOString().slice(0, 10);
+
   const extractionSystemPrompt =
-    getPrompt("memory-extraction") ??
+    getPrompt("memory-extraction", { conversation_date: conversationDate }) ??
     "You are a memory extraction assistant. Extract durable facts as a JSON array: " +
-    '[{"content": "fact", "tags": ["tag"]}]. Output empty array [] if nothing to extract.';
+    '[{"content": "fact", "tags": ["tag"]}]. Output empty array [] if nothing to extract. ' +
+    `Never use relative dates; use absolute ISO dates. Conversation date: ${conversationDate}`;
 
   const extractionMessages: Array<Record<string, unknown>> = [
     {

@@ -50,6 +50,10 @@ export class MemoryWriteTool extends Tool {
       `Write immediately when you learn: a preference, a decision, a person's name or role, ` +
       `a project name, a deadline, a technical choice, a system detail, or any fact likely ` +
       `to matter in a future conversation. One focused fact per call. ` +
+      `IMPORTANT — absolute dates only: never write relative time expressions such as "today", "yesterday", ` +
+      `"tomorrow", "last week", "next Monday", or "recently". Always replace them with the actual ` +
+      `ISO date (YYYY-MM-DD). Example: instead of "Shipment picked up today" write ` +
+      `"Shipment picked up on 2026-03-09". If the exact date is unknown, omit it. ` +
       `Duplicates are detected automatically: near-identical entries are auto-superseded; ` +
       `if the response contains similar_entries, use supersedes to update one instead of creating a new entry. ` +
       `Use supersedes to replace an outdated entry by its numeric ID. ` +
