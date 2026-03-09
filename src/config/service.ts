@@ -196,16 +196,6 @@ export class ConfigService {
           ...((defaults as { channels: { webhook: Record<string, unknown> } }).channels.webhook),
           jwtSecret: "change-me-to-a-random-secret"
         },
-        email: {
-          ...((defaults as { channels: { email: Record<string, unknown> } }).channels.email),
-          imapHost: "imap.example.com",
-          imapUsername: "you@example.com",
-          imapPassword: "your-imap-password",
-          smtpHost: "smtp.example.com",
-          smtpUsername: "you@example.com",
-          smtpPassword: "your-smtp-password",
-          fromAddress: "you@example.com"
-        }
       },
       tools: {
         ...(defaults.tools as Record<string, unknown>),

@@ -67,6 +67,15 @@ export class ContextManager {
     this.calendarSectionFn = undefined;
   }
 
+  checkBootstapIsEmpty(): boolean {
+    const bootStrapFile = join(this.workspace, "BOOTSTRAP.md");
+    if (existsSync(bootStrapFile)) {
+      const readBootStrap = readFileSync(bootStrapFile).toString();
+      return (readBootStrap !== undefined && readBootStrap.indexOf('Hello, World')>-1);
+    }
+    return false;
+  }
+
   /**
    * Assembles the full system prompt for a conversation turn.
    *
@@ -84,7 +93,7 @@ export class ContextManager {
 
     // Bootstrap mode: BOOTSTRAP.md present means first-run setup is incomplete.
     // Inject BEFORE the identity block so it overrides the "casual messages → reply directly" rule.
-    if (!sysSession && existsSync(join(this.workspace, "BOOTSTRAP.md"))) {
+    if (!sysSession && !this.checkBootstapIsEmpty()) {
       parts.push(
         `**BOOTSTRAP MODE ACTIVE**\n\n` +
         `BOOTSTRAP.md is present in your workspace. This means first-run setup has not been completed yet.\n` +

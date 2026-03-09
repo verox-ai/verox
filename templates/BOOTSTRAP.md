@@ -15,4 +15,4 @@ After you know who you are:
 - Update `USER.md`
 - Review `SOUL.md` together and adjust if needed
 
-When done, delete this file.
+When done, remove the content of this file, but do not delete it.
