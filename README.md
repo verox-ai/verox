@@ -45,7 +45,7 @@ A self-hosted AI agent you can talk to via Telegram, Slack, WebChat, or HTTP web
 ### Quick install (Linux)
 
 ```bash
-git clone https://github.com/verox-ai/verox.git
+git clone https://github.com/youruser/verox.git
 cd verox
 ./install.sh
 ```
@@ -979,4 +979,4 @@ MCP tools are registered at startup with names in the form `mcp__{serverName}__{
 
 ## License
 
-ISC
+MIT
