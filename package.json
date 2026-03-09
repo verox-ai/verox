@@ -1,0 +1,80 @@
+{
+  "name": "Verox",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "verox": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx watch --tsconfig tsconfig.json src/runtime.ts",
+    "start": "node dist/index.js",
+    "dev:build": "tsx src/index.ts",
+    "build": "node src/utils/inject-version.cjs && tsup src/index.ts src/runtime.ts --format esm --dts --out-dir dist --shims",
+    "build:ui": "cd webui && pnpm install && npx ng build --configuration production",
+    "build:all": "pnpm run build && pnpm run build:ui",
+    "dev:ui": "cd webui && npx ng serve --proxy-config proxy.json",
+    "debug": "tsx --inspect src/runtime.ts",
+    "cli": "tsx src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.10.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.1",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@slack/socket-mode": "^2.0.5",
+    "@slack/web-api": "^7.14.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "better-sqlite3": "^12.6.2",
+    "chrono-node": "^2.9.0",
+    "commander": "^14.0.3",
+    "cron": "^4.4.0",
+    "express": "^5.2.1",
+    "imapflow": "^1.2.10",
+    "jsonwebtoken": "^9.0.3",
+    "mailparser": "^3.9.3",
+    "node-telegram-bot-api": "^0.67.0",
+    "openai": "^6.22.0",
+    "pdf-parse": "^2.4.5",
+    "playwright": "^1.58.2",
+    "qrcode": "^1.5.4",
+    "reflect-metadata": "^0.2.2",
+    "sqlite-vec": "0.1.7-alpha.2",
+    "tsdav": "^2.1.8",
+    "tsyringe": "^4.10.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "ws": "^8.19.0",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.15.11",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.17.6",
+    "@types/node-telegram-bot-api": "^0.64.13",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin":"^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "eslint": "^10.0.3",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.18"
+  }
+}
