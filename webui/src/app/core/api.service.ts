@@ -46,9 +46,9 @@ export interface SessionMessage {
 
 export interface DocFile {
   path: string;
-  file_hash?: string;
+  fileHash?: string;
   chunks?: number;
-  indexed_at?: string;
+  indexedAt?: string;
   pathObject?: { name: string; path: string };
   fileName?: string;
 }
@@ -150,6 +150,12 @@ export class ApiService {
   // Docs
   getDocs(): Observable<DocFile[]> {
     return this.http.get<DocFile[]>('/api/docs');
+  }
+  deleteDoc(path: string): Observable<{ removed: boolean; path: string }> {
+    return this.http.delete<{ removed: boolean; path: string }>('/api/docs', { body: { path } });
+  }
+  indexDocs(): Observable<{ indexed: number; skipped: number; errors: string[] }> {
+    return this.http.post<{ indexed: number; skipped: number; errors: string[] }>('/api/docs/index', {});
   }
 
   // Skills

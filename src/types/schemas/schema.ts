@@ -281,6 +281,8 @@ export const DocStoreConfigSchema = z.object({
   embeddingApiBase: z.string().optional(),
   /** Override API key for embeddings — use when the embedding provider differs from the chat provider. */
   embeddingApiKey:  z.string().optional(),
+  /** Directory where docs_upload saves files (e.g. a NAS mount). Defaults to workspace/uploads. */
+  uploadPath: z.string().optional(),
 });
 
 export const CalDavConfigSchema = z.object({

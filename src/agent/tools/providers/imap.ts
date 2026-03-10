@@ -2,7 +2,7 @@ import type { Config } from "src/types/schemas/schema.js";
 import type { Tool } from "../toolbase.js";
 import type { AgentServices } from "../tool-provider.js";
 import type { ToolProvider } from "../tool-provider.js";
-import { ImapDraftTool, ImapMailReadTool, ImapMailTool, ImapMailUpdateTool } from "../imap.js";
+import { ImapAttachmentsTool, ImapDraftTool, ImapMailReadTool, ImapMailTool, ImapMailUpdateTool } from "../imap.js";
 
 /** IMAP email tools. Enabled when tools.imap is configured. */
 export class ImapProvider implements ToolProvider {
@@ -20,6 +20,7 @@ export class ImapProvider implements ToolProvider {
       new ImapMailReadTool(imap),
       new ImapMailUpdateTool(imap),
       new ImapDraftTool(imap),
+      new ImapAttachmentsTool(imap, services.workspace),
     ];
   }
 }

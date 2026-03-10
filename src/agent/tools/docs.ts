@@ -1,3 +1,5 @@
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { Tool } from "./toolbase.js";
 import { RiskLevel } from "../security.js";
 import type { DocStore } from "src/docs/store.js";
@@ -147,6 +149,89 @@ export class DocGetTool extends Tool {
       return await extractText(filePath);
     } catch (err) {
       return `Error reading file: ${String(err)}`;
+    }
+  }
+}
+
+/**
+ * Saves a local file (e.g. a downloaded IMAP attachment) to the configured
+ * upload directory and optionally indexes it in the document store.
+ *
+ * maxRisk = Low — must not run directly from attacker-controlled email content;
+ * requires one LLM processing step (decay) between imap_attachments download and this call.
+ */
+export class DocsUploadTool extends Tool {
+  private logger = new Logger(DocsUploadTool.name);
+
+  constructor(
+    private store: DocStore,
+    private uploadPath: string,
+    private workspace: string
+  ) { super(); }
+
+  get name(): string { return "docs_upload"; }
+  get maxRisk(): RiskLevel { return RiskLevel.High; }
+  get outputRisk(): RiskLevel { return RiskLevel.None; }
+
+  get description(): string {
+    return [
+      `Save a local file to the configured upload folder (${this.uploadPath}).`,
+      "Typical use: after downloading an email attachment with imap_attachments, pass the returned path here to persist it.",
+      "Pass index: true to also add the file to the document search index immediately.",
+      "An optional filename overrides the original name.",
+    ].join(" ");
+  }
+
+  get parameters(): Record<string, unknown> {
+    return {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Absolute path of the source file to upload (e.g. workspace/tmp/invoice.pdf)."
+        },
+        filename: {
+          type: "string",
+          description: "Override the destination filename. Defaults to the source file's basename."
+        },
+        index: {
+          type: "boolean",
+          description: "If true, index the saved file in the document store immediately (default: false)."
+        }
+      },
+      required: ["path"]
+    };
+  }
+
+  async execute(params: Record<string, unknown>): Promise<string> {
+    const srcPath  = String(params.path ?? "").trim();
+    const filename = params.filename ? String(params.filename).trim() : basename(srcPath);
+    const doIndex  = params.index === true;
+
+    if (!srcPath)   return "Error: path is required";
+    if (!existsSync(srcPath)) return `Error: source file not found: ${srcPath}`;
+
+    // Sanitise filename — no path separators.
+    const safeName = filename.replace(/[/\\]/g, "_");
+
+    try {
+      mkdirSync(this.uploadPath, { recursive: true });
+      const destPath = join(this.uploadPath, safeName);
+      copyFileSync(srcPath, destPath);
+      this.logger.info("docs_upload: saved file", { destPath });
+
+      const result: Record<string, unknown> = { saved_to: destPath, filename: safeName };
+
+      if (doIndex) {
+        const indexed = await this.store.indexFile(destPath, true);
+        result.indexed = indexed.status === "indexed";
+        if (indexed.status === "indexed") result.chunks = indexed.chunks;
+        if (indexed.error) result.index_error = indexed.error;
+      }
+
+      return JSON.stringify(result, null, 2);
+    } catch (err) {
+      return `Error saving file: ${String(err)}`;
     }
   }
 }

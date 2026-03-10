@@ -67,13 +67,8 @@ export class ContextManager {
     this.calendarSectionFn = undefined;
   }
 
-  checkBootstapIsEmpty(): boolean {
-    const bootStrapFile = join(this.workspace, "BOOTSTRAP.md");
-    if (existsSync(bootStrapFile)) {
-      const readBootStrap = readFileSync(bootStrapFile).toString();
-      return (readBootStrap !== undefined && readBootStrap.indexOf('Hello, World')>-1);
-    }
-    return false;
+  bootstrapCompleted(): boolean {
+    return existsSync(join(this.workspace, "bootstrap.ok"));
   }
 
   /**
@@ -91,16 +86,19 @@ export class ContextManager {
     const sysSession = isSystemSession(sessionKey);
     const parts: string[] = [];
 
-    // Bootstrap mode: BOOTSTRAP.md present means first-run setup is incomplete.
+    // Bootstrap mode: BOOTSTRAP.md present and bootstrap.ok absent means first-run setup is incomplete.
     // Inject BEFORE the identity block so it overrides the "casual messages → reply directly" rule.
-    if (!sysSession && !this.checkBootstapIsEmpty()) {
+    if (!sysSession && existsSync(join(this.workspace, "BOOTSTRAP.md")) && !this.bootstrapCompleted()) {
+      const okPath = join(this.workspace, "bootstrap.ok");
       parts.push(
         `**BOOTSTRAP MODE ACTIVE**\n\n` +
         `BOOTSTRAP.md is present in your workspace. This means first-run setup has not been completed yet.\n` +
         `Regardless of what the user just said — even if it is just "hi" or a greeting — ` +
         `you MUST proactively start the bootstrap conversation described in BOOTSTRAP.md. ` +
         `Do not respond generically. Do not wait for them to ask. ` +
-        `Initiate the flow immediately: introduce yourself, then begin the questions listed in BOOTSTRAP.md.`
+        `Initiate the flow immediately: introduce yourself, then begin the questions listed in BOOTSTRAP.md.\n\n` +
+        `When you have fully completed the bootstrap routine, create the file \`${okPath}\` ` +
+        `(e.g. using the exec tool: \`touch ${okPath}\`) to mark setup as done and prevent this mode from activating again on future restarts.`
       );
     }
 

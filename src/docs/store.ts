@@ -341,6 +341,19 @@ export class DocStore {
     return { indexed, skipped, errors };
   }
 
+  /** Remove a single file from the index by its absolute path. Returns true if found and removed. */
+  removeFile(filePath: string): boolean {
+    const row = this.db.prepare("SELECT path FROM doc_files WHERE path = ?").get(filePath);
+    if (!row) return false;
+    const ids = (this.db.prepare("SELECT id FROM doc_chunks WHERE path = ?").all(filePath) as { id: number }[])
+      .map(r => r.id);
+    if (ids.length > 0) {
+      this.db.prepare(`DELETE FROM vec_chunks WHERE rowid IN (${ids.map(() => "?").join(",")})`).run(...ids);
+    }
+    this.db.prepare("DELETE FROM doc_files WHERE path = ?").run(filePath);
+    return true;
+  }
+
   /** Remove index entries for files that are no longer on disk. */
   pruneDeleted(currentFiles?: string[]): number {
     const existing = (currentFiles ?? []).map(f => resolve(f));

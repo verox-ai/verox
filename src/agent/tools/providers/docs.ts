@@ -1,8 +1,9 @@
+import { join } from "node:path";
 import type { Config } from "src/types/schemas/schema.js";
 import type { Tool } from "../toolbase.js";
 import type { AgentServices } from "../tool-provider.js";
 import type { ToolProvider } from "../tool-provider.js";
-import { DocGetTool, DocsIndexTool, DocsListTool, DocsSearchTool } from "../docs.js";
+import { DocGetTool, DocsIndexTool, DocsListTool, DocsSearchTool, DocsUploadTool } from "../docs.js";
 import { DocStore, buildEmbedFn } from "src/docs/store.js";
 
 /** Document-store tools. Enabled when tools.docs.enabled = true. */
@@ -23,11 +24,13 @@ export class DocsProvider implements ToolProvider {
       (texts, model) => services.providerManager.embed(texts, model)
     );
     this.docStore = new DocStore(services.workspace, embedFn, docsCfg);
+    const uploadPath = docsCfg.uploadPath ?? join(services.workspace, "uploads");
     return [
       new DocsIndexTool(this.docStore),
       new DocsSearchTool(this.docStore),
       new DocsListTool(this.docStore),
       new DocGetTool(this.docStore),
+      new DocsUploadTool(this.docStore, uploadPath, services.workspace),
     ];
   }
 

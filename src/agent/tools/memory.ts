@@ -44,16 +44,18 @@ export class MemoryWriteTool extends Tool {
   }
 
   get description(): string {
+    const isoToday = new Date().toISOString().slice(0, 10);
     return (
       `Save a durable fact to long-term memory. ` +
       `Call this proactively — do not wait for the user to say "remember". ` +
       `Write immediately when you learn: a preference, a decision, a person's name or role, ` +
       `a project name, a deadline, a technical choice, a system detail, or any fact likely ` +
       `to matter in a future conversation. One focused fact per call. ` +
-      `IMPORTANT — absolute dates only: never write relative time expressions such as "today", "yesterday", ` +
-      `"tomorrow", "last week", "next Monday", or "recently". Always replace them with the actual ` +
-      `ISO date (YYYY-MM-DD). Example: instead of "Shipment picked up today" write ` +
-      `"Shipment picked up on 2026-03-09". If the exact date is unknown, omit it. ` +
+      `IMPORTANT — absolute dates only: today is ${isoToday}. Never write relative time expressions ` +
+      `such as "today", "yesterday", "tomorrow", "last week", "next Monday", or "recently". ` +
+      `Always replace them with an ISO date (YYYY-MM-DD). ` +
+      `Example: instead of "Shipment picked up today" write "Shipment picked up on ${isoToday}". ` +
+      `If the exact date is unknown, omit it entirely. ` +
       `Duplicates are detected automatically: near-identical entries are auto-superseded; ` +
       `if the response contains similar_entries, use supersedes to update one instead of creating a new entry. ` +
       `Use supersedes to replace an outdated entry by its numeric ID. ` +
@@ -88,6 +90,13 @@ export class MemoryWriteTool extends Tool {
   async execute(params: Record<string, unknown>): Promise<string> {
     const content = String(params.content ?? "").trim();
     if (!content) return "Error: content is required";
+
+    // Reject entries that contain relative date words — they will age badly.
+    const RELATIVE_DATE_PATTERN = /\b(today|yesterday|tomorrow|last\s+week|next\s+week|last\s+month|next\s+month|this\s+week|this\s+month|recently|soon|just\s+now|earlier\s+today|this\s+morning|this\s+afternoon|this\s+evening|tonight)\b/i;
+    if (RELATIVE_DATE_PATTERN.test(content)) {
+      const isoToday = new Date().toISOString().slice(0, 10);
+      return `Error: memory content contains a relative date expression. Relative dates become meaningless over time. Replace it with an absolute ISO date. Today is ${isoToday}. Rewrite the content using the actual date and call memory_write again.`;
+    }
 
     const rawTags = Array.isArray(params.tags)
       ? params.tags.map((t) => String(t).trim()).filter(Boolean)

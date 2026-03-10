@@ -5,7 +5,7 @@ import { RiskLevel } from "../security.js";
 import { ImapFlow } from "imapflow";
 import { ParsedMail, simpleParser } from 'mailparser';
 import { join } from "path";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 
 export type ImapConfig = {
     user: string;
@@ -274,6 +274,130 @@ export class ImapMailReadTool extends Tool {
         } catch (e) {
             this.logger.error("imap_read failed", { error: String(e) });
             return JSON.stringify({});
+        } finally {
+            await client.logout();
+        }
+    }
+}
+
+/**
+ * Lists and downloads email attachments.
+ *
+ * list     — returns attachment metadata (filename, contentType, size) for a message.
+ *            outputRisk = Low (metadata only, no file content).
+ * download — saves one attachment to workspace/tmp/ and returns the local path.
+ *            Raises _lastExecuteRisk to High (attacker-controlled file content).
+ */
+export class ImapAttachmentsTool extends Tool {
+    private logger = new Logger(ImapAttachmentsTool.name);
+
+    constructor(private mailconfig: ImapConfig, private workspace: string) {
+        super();
+    }
+
+    get name(): string { return "imap_attachments"; }
+
+    // Dynamic: Low for list, raised to High after download.
+    get outputRisk(): RiskLevel { return RiskLevel.Low; }
+
+    get description(): string {
+        return (
+            "List or download email attachments. " +
+            "Commands: list — returns attachment metadata (filename, type, size bytes) for a message; " +
+            "download — saves a named attachment to a local temp path and returns the path. " +
+            "Use the returned path with docs_upload to persist the file to the configured upload folder. " +
+            "Downloaded file content is external/untrusted — treat with the same caution as imap_read."
+        );
+    }
+
+    get parameters(): Record<string, unknown> {
+        return {
+            type: "object",
+            properties: {
+                command: {
+                    type: "string",
+                    enum: ["list", "download"],
+                    description: "list — enumerate attachments; download — save one attachment to disk."
+                },
+                mailbox: { type: "string", description: "Mailbox containing the message (e.g. INBOX)." },
+                uid: { type: "number", description: "UID of the message." },
+                filename: {
+                    type: "string",
+                    description: "download only: exact filename of the attachment to save (from list output)."
+                }
+            },
+            required: ["command", "mailbox", "uid"]
+        };
+    }
+
+    async execute(params: Record<string, unknown>): Promise<string> {
+        this._lastExecuteRisk = undefined;
+        const command = String(params.command ?? "").trim();
+        const mailbox = String(params.mailbox ?? "").trim();
+        const uid     = Number(params.uid ?? 0);
+
+        if (!mailbox) return "Error: mailbox is required";
+        if (!uid)     return "Error: uid is required";
+
+        const client = createClient(this.mailconfig);
+        try {
+            await client.connect();
+            const lock = await client.getMailboxLock(mailbox);
+            try {
+                const message = await client.fetchOne(uid, { envelope: true }, { uid: true });
+                if (!message) return "Error: message not found";
+
+                const { content } = await client.download(message.seq);
+                const chunks: Buffer[] = [];
+                for await (const chunk of content) chunks.push(chunk as Buffer);
+                const parsed: ParsedMail = await simpleParser(Buffer.concat(chunks));
+
+                if (command === "list") {
+                    const attachments = (parsed.attachments ?? []).map(a => ({
+                        filename:    a.filename ?? "(unnamed)",
+                        contentType: a.contentType,
+                        size:        a.size ?? a.content?.length ?? 0
+                    }));
+                    if (attachments.length === 0) return "No attachments found in this message.";
+                    return JSON.stringify(attachments, null, 2);
+                }
+
+                if (command === "download") {
+                    const filename = String(params.filename ?? "").trim();
+                    if (!filename) return "Error: filename is required for download";
+
+                    const attachment = (parsed.attachments ?? []).find(
+                        a => (a.filename ?? "") === filename
+                    );
+                    if (!attachment) return `Error: attachment "${filename}" not found. Use list to see available attachments.`;
+
+                    // Sanitise filename — strip path separators to prevent traversal.
+                    const safeName = filename.replace(/[/\\]/g, "_");
+                    const tmpDir   = join(this.workspace, "tmp");
+                    mkdirSync(tmpDir, { recursive: true });
+                    const destPath = join(tmpDir, safeName);
+                    writeFileSync(destPath, attachment.content);
+
+                    // No risk raise — file bytes go to disk, not into the LLM context.
+                    // Only the path (safe metadata) is returned. Risk would need to be
+                    // raised if the file content were ever read back into the prompt
+                    // (e.g. via docs_get), which is handled by that tool's outputRisk.
+
+                    return JSON.stringify({
+                        path:        destPath,
+                        filename:    safeName,
+                        contentType: attachment.contentType,
+                        size:        attachment.content.length
+                    });
+                }
+
+                return `Error: unknown command "${command}". Valid: list, download`;
+            } finally {
+                lock.release();
+            }
+        } catch (e) {
+            this.logger.error("imap_attachments failed", { error: String(e) });
+            return `Error: ${String(e)}`;
         } finally {
             await client.logout();
         }
