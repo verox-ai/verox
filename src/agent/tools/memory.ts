@@ -206,6 +206,14 @@ export class MemorySearchTool extends Tool {
           type: "string",
           enum: SEMANTIC_TYPES,
           description: "Filter by semantic type. Useful for broad recall: e.g. 'preference' to find all user preferences, 'constraint' for hard rules, 'fact' for stored knowledge."
+        },
+        limit: {
+          type: "integer",
+          description: "Max results per page (default: 20, max: 100)."
+        },
+        page: {
+          type: "integer",
+          description: "Page number, 1-based (default: 1). Check total_pages in the response to know if more pages exist."
         }
       }
     };
@@ -221,22 +229,30 @@ export class MemorySearchTool extends Tool {
     const memory_type = SEMANTIC_TYPES.includes(params.memory_type as SemanticMemoryType)
       ? (params.memory_type as SemanticMemoryType)
       : undefined;
+    const limit  = Math.min(typeof params.limit === "number" ? params.limit : 20, 100);
+    const page   = Math.max(typeof params.page  === "number" ? params.page  : 1, 1);
+    const offset = (page - 1) * limit;
 
-    this.logger.debug("memory_search", { query, tags, memory_type });
-    const results = this.store.searchSmart(query, tags, true, 0, memory_type);
-    this.logger.debug(`result ${JSON.stringify(results)}`);
+    this.logger.debug("memory_search", { query, tags, memory_type, limit, page });
+    const results = this.store.searchSmart(query, tags, true, 0, memory_type, limit, offset);
+    const total   = this.store.countSearchSmart(query, tags, true, 0, memory_type);
+    this.logger.debug(`result ${results.length} of ${total}`);
 
     // If any recalled entry was sourced from a high-risk session turn, raise the
     // dynamic output risk so the SecurityManager can gate subsequent tool calls.
-    // This prevents an attacker who injected content into a past session from
-    // weaponising that memory to trigger dangerous actions in a future turn.
     const maxRisk = results.reduce((max, r) => Math.max(max, r.risk_level ?? 0), 0);
     if (maxRisk > RiskLevel.None) {
       this._lastExecuteRisk = maxRisk as RiskLevel;
       this.logger.debug(`memory_search: recalled ${results.length} entries, max risk_level=${maxRisk}`);
     }
 
-    return JSON.stringify({ count: results.length, results }, null, 2);
+    return JSON.stringify({
+      page,
+      limit,
+      total,
+      total_pages: Math.ceil(total / limit),
+      results
+    }, null, 2);
   }
 }
 

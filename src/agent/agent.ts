@@ -38,6 +38,10 @@ import { CalDavProvider } from "./tools/providers/caldav.js";
 import { BrowserProvider } from "./tools/providers/browser.js";
 import { CalendarAwareness } from "src/calendar/awareness.js";
 import { ContactsProvider } from "./tools/providers/contacts.js";
+import { KnowledgeProvider } from "./tools/providers/knowledge.js";
+import { SmtpProvider } from "./tools/providers/smtp.js";
+import { WorkflowService } from "./workflow.js";
+import { WorkflowActivateTool, WorkflowCancelTool, WorkflowListTool, WorkflowPlanTool, WorkflowSaveTool } from "./tools/workflow.js";
 
 
 /**
@@ -82,6 +86,7 @@ export class Agent {
     private workspace: string;
     private usageService: UsageService;
     private isSecManagerEnabled: boolean;
+    private workflowService: WorkflowService;
     /** Services bundle passed to every ToolProvider. */
     private agentServices: AgentServices;
     
@@ -137,6 +142,7 @@ export class Agent {
         this.workspace = workspace;
         this.isSecManagerEnabled = process.env.VEROX_DISABLE_SECURITY === 'true' ? false : true;
         this.usageService = new UsageService(workspace);
+        this.workflowService = new WorkflowService(workspace, sessionManager);
         this.context = new ContextManager(workspace, this.options.contextConfig, memoryStore);
         this.sessions = sessionManager;
         this.memory = memoryStore;
@@ -177,6 +183,16 @@ export class Agent {
         this.tools.addProvider(new CalDavProvider());
         this.tools.addProvider(new BrowserProvider());
         this.tools.addProvider(new ContactsProvider());
+        this.tools.addProvider(new KnowledgeProvider());
+        this.tools.addProvider(new SmtpProvider());
+
+        // Workflow tools registered directly (not via provider — they need the
+        // WorkflowService instance which is agent-scoped, not config-driven).
+        this.tools.register(new WorkflowPlanTool(this.workflowService));
+        this.tools.register(new WorkflowActivateTool(this.workflowService));
+        this.tools.register(new WorkflowSaveTool(this.workflowService));
+        this.tools.register(new WorkflowListTool(this.workflowService));
+        this.tools.register(new WorkflowCancelTool(this.workflowService));
         this.tools.syncAllProviders(appConfig, this.agentServices);
 
         // ToolSearchTool needs a reference to the registry itself — register after sync.
@@ -366,6 +382,9 @@ export class Agent {
     ): Promise<string | null> {
         // Reset per-turn contextual tool activations (done by ToolSearchTool).
         this.tools.resetActivations();
+        // Bind workflow service to this session so tools can read/write its metadata.
+        this.workflowService.setSession(session);
+
         // Fresh instance per turn — risk level must never bleed across turns or
         // between concurrent sessions (cron, multi-channel).
         const securityManager = new SecurityManager();
@@ -381,6 +400,25 @@ export class Agent {
                 : { effort: null, adaptive: false }
         );
 
+        // Inject active/pending workflow state into the system prompt.
+        const activeWorkflow  = this.workflowService.getActive();
+        const pendingWorkflow = this.workflowService.getPending();
+        if (activeWorkflow || pendingWorkflow) {
+            const sysMsg = messages.find(m => m.role === "system");
+            if (sysMsg && typeof sysMsg.content === "string") {
+                if (activeWorkflow) {
+                    sysMsg.content += `\n\n---\n\n## Active Workflow: "${activeWorkflow.name}"\n`
+                        + `Goal: ${activeWorkflow.summary}\n`
+                        + `Approved tools (no security holds): ${activeWorkflow.tools_needed.join(", ")}\n`
+                        + `Proceed with the task — security holds are suspended for these tools.`;
+                } else if (pendingWorkflow) {
+                    sysMsg.content += `\n\n---\n\n## Pending Workflow: "${pendingWorkflow.name}"\n`
+                        + `Goal: ${pendingWorkflow.summary}\n`
+                        + `This plan is awaiting user confirmation. Present it and ask the user to confirm, then call workflow_activate.`;
+                }
+            }
+        }
+
         return runLLMLoop({
             messages,
             tools: this.tools,
@@ -389,6 +427,7 @@ export class Agent {
             reasoningEffortLevels,
             securityManager,
             toolContext,
+            workflowApprovedTools: this.workflowService.getApprovedTools(),
             securityOverrides: this.options.toolConfig?.security ?? {},
             skillSecurityOverrides: this.options.toolConfig?.skillSecurity ?? {},
             isSkillSigned: (command: string) => {

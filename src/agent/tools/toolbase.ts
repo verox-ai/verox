@@ -1,6 +1,18 @@
 import { getToolDescription } from "src/prompts/loader.js";
 import { RiskLevel } from "../security.js";
 
+/** A single content part in a rich tool result (text or inline image). */
+export type ToolContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+/**
+ * A tool result is either a plain string or an array of content parts.
+ * Use content parts when the tool needs to return both text and inline images
+ * (e.g. browser_screenshot returning the PNG alongside a caption).
+ */
+export type ToolResult = string | ToolContentPart[];
+
 export type ToolSchema = {
   type: string;
   description?: string;
@@ -40,7 +52,7 @@ export abstract class Tool {
   /** JSON Schema (type: "object") describing the tool's input parameters. */
   abstract get parameters(): Record<string, unknown>;
 
-  abstract execute(params: Record<string, unknown>, toolCallId?: string): Promise<string>;
+  abstract execute(params: Record<string, unknown>, toolCallId?: string): Promise<ToolResult>;
 
   /**
    * The risk level that this tool's output adds to the context.
@@ -48,6 +60,14 @@ export abstract class Tool {
    * Default: None (no taint).
    */
   get outputRisk(): RiskLevel { return RiskLevel.None; }
+
+  /**
+   * When true, multiple calls to this tool within the same LLM response batch
+   * are executed concurrently (Promise.all) rather than sequentially.
+   * Use this for tools that spawn independent async work (e.g. agent_run).
+   * Default: false (sequential, preserving current behaviour for all other tools).
+   */
+  get parallel(): boolean { return false; }
 
   /**
    * When true, the tool is subject to relevance-based filtering.

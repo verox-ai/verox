@@ -68,6 +68,41 @@ export class MemoryService {
 
   private initSchema(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS knowledge (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug       TEXT NOT NULL UNIQUE,
+        title      TEXT NOT NULL,
+        content    TEXT NOT NULL,
+        tags       TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_slug ON knowledge(slug);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_updated ON knowledge(updated_at);
+      CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+        slug, title, content, tags,
+        content='knowledge', content_rowid='id'
+      );
+    `);
+    // Keep FTS index in sync via triggers
+    this.db.exec(`
+      CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge BEGIN
+        INSERT INTO knowledge_fts(rowid, slug, title, content, tags)
+          VALUES (new.id, new.slug, new.title, new.content, new.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge BEGIN
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, slug, title, content, tags)
+          VALUES ('delete', old.id, old.slug, old.title, old.content, old.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge BEGIN
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, slug, title, content, tags)
+          VALUES ('delete', old.id, old.slug, old.title, old.content, old.tags);
+        INSERT INTO knowledge_fts(rowid, slug, title, content, tags)
+          VALUES (new.id, new.slug, new.title, new.content, new.tags);
+      END;
+    `);
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS memory (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
         type           TEXT    NOT NULL DEFAULT 'manual',
@@ -524,7 +559,9 @@ export class MemoryService {
   tags?: string[],
   includeDerived = true,
   minConfidence = 0.0,
-  memoryType?: SemanticMemoryType
+  memoryType?: SemanticMemoryType,
+  limit = 20,
+  offset = 0
 ): MemoryEntry[] {
   const params: unknown[] = [];
 
@@ -567,7 +604,9 @@ export class MemoryService {
   sql += `
     GROUP BY m.id
     ORDER BY pinned DESC, confidence DESC, created_at DESC
+    LIMIT ? OFFSET ?
   `;
+  params.push(limit, offset);
 
   try {
     const rows = this.db.prepare(sql).all(...params) as RawRow[];
@@ -577,6 +616,46 @@ export class MemoryService {
     return [];
   }
 }
+
+  countSearchSmart(
+    query?: string,
+    tags?: string[],
+    includeDerived = true,
+    minConfidence = 0.0,
+    memoryType?: SemanticMemoryType
+  ): number {
+    const params: unknown[] = [];
+    let sql = `
+      SELECT COUNT(DISTINCT m.id) as cnt
+      FROM memory m
+      LEFT JOIN tags t ON t.memory_id = m.id
+      WHERE ${ACTIVE_WHERE}
+        AND (m.confidence >= ? OR m.pinned = 1)
+    `;
+    params.push(minConfidence);
+    if (!includeDerived) sql += ` AND m.type != 'derived'`;
+    if (memoryType) { sql += ` AND m.memory_type = ?`; params.push(memoryType); }
+    if (query) {
+      const words = query.trim().split(/\s+/).filter(w => w.length >= 3);
+      if (words.length > 1) {
+        sql += ` AND (${words.map(() => "m.content LIKE ?").join(" OR ")})`;
+        params.push(...words.map(w => `%${w}%`));
+      } else {
+        sql += " AND m.content LIKE ?";
+        params.push(`%${query}%`);
+      }
+    }
+    if (tags?.length) {
+      sql += ` AND m.id IN (SELECT memory_id FROM tags WHERE tag IN (${tags.map(() => "?").join(",")}))`;
+      params.push(...tags);
+    }
+    try {
+      const row = this.db.prepare(sql).get(...params) as { cnt: number };
+      return row?.cnt ?? 0;
+    } catch {
+      return 0;
+    }
+  }
 
   buildPromptContextSmart(options?: {
     maxPinChars?: number;
@@ -697,10 +776,157 @@ export class MemoryService {
     return parts.join("\n\n");
   }
 
+  // ── Knowledge documents ──────────────────────────────────────────────────────
+
+  /**
+   * Creates or fully replaces a knowledge document identified by `slug`.
+   * If a document with the same slug already exists it is updated in-place.
+   */
+  knowledgeWrite(item: {
+    slug: string;
+    title: string;
+    content: string;
+    tags?: string[];
+  }): KnowledgeDoc {
+    const slug = item.slug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    const tags = JSON.stringify(item.tags ?? []);
+    const existing = this.db.prepare("SELECT id FROM knowledge WHERE slug = ?").get(slug) as { id: number } | undefined;
+    if (existing) {
+      this.db.prepare(`
+        UPDATE knowledge SET title = ?, content = ?, tags = ?,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE slug = ?
+      `).run(item.title, item.content, tags, slug);
+    } else {
+      this.db.prepare(`
+        INSERT INTO knowledge (slug, title, content, tags) VALUES (?, ?, ?, ?)
+      `).run(slug, item.title, item.content, tags);
+    }
+    return this.knowledgeGet(slug)!;
+  }
+
+  /** Reads a knowledge document by slug. Returns null if not found. */
+  knowledgeGet(slug: string): KnowledgeDoc | null {
+    const row = this.db.prepare("SELECT * FROM knowledge WHERE slug = ?")
+      .get(slug.trim().toLowerCase()) as KnowledgeRow | undefined;
+    return row ? rowToKnowledge(row) : null;
+  }
+
+  /** Lists all knowledge documents (without content — titles and metadata only). */
+  knowledgeList(): KnowledgeDocMeta[] {
+    return (this.db.prepare(
+      "SELECT id, slug, title, tags, created_at, updated_at FROM knowledge ORDER BY updated_at DESC"
+    ).all() as KnowledgeRow[]).map(r => ({
+      slug: r.slug,
+      title: r.title,
+      tags: JSON.parse(r.tags ?? "[]") as string[],
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }));
+  }
+
+  /**
+   * Full-text searches knowledge documents on title + content + tags.
+   * Returns matching docs without content (caller calls knowledgeGet to read one).
+   */
+  knowledgeSearch(query: string, limit = 10): KnowledgeDocMeta[] {
+    try {
+      const rows = this.db.prepare(`
+        SELECT k.id, k.slug, k.title, k.tags, k.created_at, k.updated_at
+        FROM knowledge_fts f
+        JOIN knowledge k ON k.id = f.rowid
+        WHERE knowledge_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(query, limit) as KnowledgeRow[];
+      return rows.map(r => ({
+        slug: r.slug,
+        title: r.title,
+        tags: JSON.parse(r.tags ?? "[]") as string[],
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+      }));
+    } catch {
+      // FTS syntax error — fall back to LIKE search on title
+      const rows = this.db.prepare(`
+        SELECT id, slug, title, tags, created_at, updated_at FROM knowledge
+        WHERE title LIKE ? OR content LIKE ?
+        ORDER BY updated_at DESC LIMIT ?
+      `).all(`%${query}%`, `%${query}%`, limit) as KnowledgeRow[];
+      return rows.map(r => ({
+        slug: r.slug,
+        title: r.title,
+        tags: JSON.parse(r.tags ?? "[]") as string[],
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+      }));
+    }
+  }
+
+  /** Hard-deletes a knowledge document. Returns false if not found. */
+  knowledgeDelete(slug: string): boolean {
+    const result = this.db.prepare("DELETE FROM knowledge WHERE slug = ?")
+      .run(slug.trim().toLowerCase());
+    return result.changes > 0;
+  }
+
   /** Total count of active (non-deleted, non-superseded) entries. */
   count(): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS cnt FROM memory m WHERE ${ACTIVE_WHERE}`).get() as { cnt: number };
     return row.cnt;
+  }
+
+  /**
+   * Returns a compact knowledge map: tag frequencies, memory-type distribution,
+   * and which tags appeared in recently-created entries.
+   * Used to inject a lightweight "table of contents" into the system prompt so
+   * the agent knows what topics exist without loading entry content.
+   */
+  getKnowledgeMap(): {
+    total: number;
+    byTag: { tag: string; count: number }[];
+    byType: { type: string; count: number }[];
+    recentTags: string[];
+    knowledgeDocs: { slug: string; title: string }[];
+  } {
+    const total = this.count();
+
+    const byTag = (this.db.prepare(`
+      SELECT t.tag, COUNT(*) AS cnt
+      FROM tags t
+      JOIN memory m ON m.id = t.memory_id
+      WHERE ${ACTIVE_WHERE} AND m.risk_level < 2
+      GROUP BY t.tag
+      ORDER BY cnt DESC
+      LIMIT 30
+    `).all() as { tag: string; cnt: number }[])
+      .map(r => ({ tag: r.tag, count: r.cnt }));
+
+    const byType = (this.db.prepare(`
+      SELECT m.memory_type AS type, COUNT(*) AS cnt
+      FROM memory m
+      WHERE ${ACTIVE_WHERE} AND m.memory_type IS NOT NULL AND m.risk_level < 2
+      GROUP BY m.memory_type
+      ORDER BY cnt DESC
+    `).all() as { type: string; cnt: number }[])
+      .map(r => ({ type: r.type, count: r.cnt }));
+
+    const recentCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const recentTags = (this.db.prepare(`
+      SELECT DISTINCT t.tag
+      FROM tags t
+      JOIN memory m ON m.id = t.memory_id
+      WHERE ${ACTIVE_WHERE} AND m.created_at > ? AND m.risk_level < 2
+      ORDER BY m.created_at DESC
+      LIMIT 10
+    `).all(recentCutoff) as { tag: string }[])
+      .map(r => r.tag);
+
+    const knowledgeDocs = (this.db.prepare(
+      "SELECT slug, title FROM knowledge ORDER BY updated_at DESC"
+    ).all() as { slug: string; title: string }[]);
+
+    return { total, byTag, byType, recentTags, knowledgeDocs };
   }
 
   /**
@@ -812,6 +1038,40 @@ type ConfidenceRow = {
   id: number,
   confidence: number;
   created_at: string;
+}
+
+// ── Knowledge document types ─────────────────────────────────────────────────
+
+export type KnowledgeDoc = {
+  slug: string;
+  title: string;
+  content: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeDocMeta = Omit<KnowledgeDoc, "content">;
+
+type KnowledgeRow = {
+  id: number;
+  slug: string;
+  title: string;
+  content: string;
+  tags: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToKnowledge(r: KnowledgeRow): KnowledgeDoc {
+  return {
+    slug: r.slug,
+    title: r.title,
+    content: r.content,
+    tags: JSON.parse(r.tags ?? "[]") as string[],
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  };
 }
 
 // ── Text similarity helpers ───────────────────────────────────────────────────

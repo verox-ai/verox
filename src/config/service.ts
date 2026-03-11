@@ -86,6 +86,28 @@ export class ConfigService {
    */
   saveAppConfig(partial: Record<string, unknown>): void {
     const current = this.getRawConfig();
+
+    // Dynamic-record sections use user-defined keys (e.g. server names) — a key
+    // absent from the incoming payload means the user deleted it. deepMergeInto
+    // would silently preserve the old entry, so we replace these sections in full
+    // before merging to honour deletions.
+    for (const recordPath of DYNAMIC_RECORD_PATHS) {
+      const parts = recordPath.split(".");
+      let src: unknown = partial;
+      let tgt: Record<string, unknown> = current;
+      let valid = true;
+      for (let i = 0; i < parts.length - 1; i++) {
+        src = (src as Record<string, unknown> | undefined)?.[parts[i]];
+        const next = tgt[parts[i]];
+        if (!src || typeof src !== "object") { valid = false; break; }
+        if (!next || typeof next !== "object") tgt[parts[i]] = {};
+        tgt = tgt[parts[i]] as Record<string, unknown>;
+      }
+      if (valid && src !== undefined) {
+        tgt[parts[parts.length - 1]] = (src as Record<string, unknown>)[parts[parts.length - 1]];
+      }
+    }
+
     deepMergeInto(current, partial);
     writeFileSync(this.configFile, JSON.stringify(current, null, 2) + "\n", "utf-8");
     this.logger.info("Config saved", { path: this.configFile });
@@ -296,6 +318,15 @@ export class ConfigService {
  * Recursively merges `source` into `target` in-place.
  * Skips values equal to "[configured]" so masked API responses don't overwrite secrets.
  */
+/**
+ * Sections whose keys are user-defined (dynamic records).
+ * For these, the entire section is replaced on save so that removed keys
+ * are deleted from the file rather than silently preserved by deepMergeInto.
+ */
+const DYNAMIC_RECORD_PATHS = [
+  "mcp.servers",
+];
+
 function deepMergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(source)) {
     if (value === "[configured]") continue;

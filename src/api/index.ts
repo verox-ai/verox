@@ -17,6 +17,8 @@ import { createLogsRouter } from "./routes/logs.js";
 import { createMcpRouter } from "./routes/mcp.js";
 import { createWhatsAppRouter } from "./routes/whatsapp.js";
 import { createOnboardingRouter } from "./routes/onboarding.js";
+import { createWorkflowsRouter } from "./routes/workflows.js";
+import { createKnowledgeRouter } from "./routes/knowledge.js";
 import type { McpServerStatus } from "src/mcp/service.js";
 import type { OnboardingService } from "src/onboarding/service.js";
 
@@ -50,7 +52,9 @@ export function createApiRouter(services: ApiServices): Router {
   router.use("/skills",   createSkillsRouter(services.workspace));
   router.use("/logs",     createLogsRouter());
   router.use("/mcp",       createMcpRouter(services.getMcpStatus));
-  router.use("/whatsapp",  createWhatsAppRouter(services.getWhatsAppStatus));
+  router.use("/whatsapp",   createWhatsAppRouter(services.getWhatsAppStatus));
+  router.use("/workflows",  createWorkflowsRouter(services.workspace));
+  router.use("/knowledge",  createKnowledgeRouter(services.memoryService));
 
   return router;
 }

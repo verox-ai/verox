@@ -57,6 +57,55 @@ export class SubagentManager {
   ) { }
 
   /**
+   * Runs a subagent synchronously and returns its final text response.
+   * Unlike `spawn()`, this awaits completion and returns the result directly
+   * so the calling tool can pass it back to the LLM as a tool result.
+   * Useful for delegation and parallel work (call multiple times in one response).
+   */
+  async run(params: {
+    task: string;
+    label?: string;
+    maxIterations?: number;
+  }): Promise<string> {
+    const tools = new ToolRegistry();
+    const allowedDir = this.options.toolConfig?.restrictFilesToWorkspace ? this.options.workspace : undefined;
+    tools.register(new ReadFileTool(allowedDir));
+    tools.register(new WriteFileTool(allowedDir));
+    tools.register(new ListDirTool(allowedDir));
+
+    const { apiKey, maxResults, strUrl } = this.options.toolConfig?.web.search ?? {};
+    tools.register(new WebSearchTool(apiKey, maxResults, strUrl));
+    tools.register(new WebFetchTool());
+
+    if (this.options.toolConfig?.web.crawl) {
+      tools.register(new WebCrawlTool(this.options.toolConfig.web.crawl));
+    }
+    if (this.options.toolConfig?.imap) {
+      tools.register(new ImapMailTool(this.options.toolConfig.imap, this.options.workspace));
+      tools.register(new ImapMailReadTool(this.options.toolConfig.imap));
+      tools.register(new ImapMailUpdateTool(this.options.toolConfig.imap));
+    }
+
+    const systemPrompt = this.buildSubagentPrompt(params.task);
+    const messages: Array<Record<string, unknown>> = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: params.task }
+    ];
+
+    const result = await runLLMLoop({
+      messages,
+      tools,
+      providerManager: this.options.providerManager,
+      maxIterations: params.maxIterations ?? 15,
+      onUsage: this.options.usageService
+        ? (prompt, completion, model) => this.options.usageService!.record(prompt, completion, model)
+        : undefined
+    });
+
+    return result ?? "Sub-agent completed but produced no output.";
+  }
+
+  /**
    * Spawns a new background subagent for `task`.
    * Returns immediately with a confirmation string; the subagent runs
    * asynchronously and posts its result back via the message bus.

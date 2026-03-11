@@ -1,4 +1,4 @@
-import { Tool } from "./toolbase";
+import { Tool, type ToolResult } from "./toolbase";
 import { Logger } from "src/utils/logger.js";
 import type { ToolProvider, AgentServices } from "./tool-provider.js";
 import type { Config } from "src/types/schemas/schema.js";
@@ -106,7 +106,7 @@ export class ToolRegistry {
    * exception) the error is returned as a string rather than thrown, so the
    * LLM loop can surface it to the model naturally.
    */
-  async execute(name: string, params: Record<string, unknown>, toolCallId?: string): Promise<string> {
+  async execute(name: string, params: Record<string, unknown>, toolCallId?: string): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
       return `Error: Tool '${name}' not found`;

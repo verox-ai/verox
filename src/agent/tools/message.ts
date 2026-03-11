@@ -21,7 +21,11 @@ export class MessageTool extends Tool {
   }
 
   get description(): string {
-    return "Send a message to a chat channel";
+    return (
+      "Send a message to a chat channel. " +
+      "Pass a 'buttons' array to render clickable options (Slack only) — " +
+      "when the user clicks a button, their selection is delivered back as '[User selected: <value>]'."
+    );
   }
 
   get parameters(): Record<string, unknown> {
@@ -36,7 +40,19 @@ export class MessageTool extends Tool {
         to: { type: "string", description: "Alias for chatId" },
         replyTo: { type: "string", description: "Message ID to reply to" },
         silent: { type: "boolean", description: "Send without notification where supported" },
-        files: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach to the message" }
+        files: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach to the message" },
+        buttons: {
+          type: "array",
+          description: "Optional interactive buttons (Slack only). Each button is displayed inline; clicking it sends the value back as a user reply.",
+          items: {
+            type: "object",
+            properties: {
+              text:  { type: "string", description: "Button label shown to the user" },
+              value: { type: "string", description: "Value sent back when clicked" }
+            },
+            required: ["text", "value"]
+          }
+        }
       },
       required: []
     };
@@ -61,13 +77,17 @@ export class MessageTool extends Tool {
     const replyTo = params.replyTo ? String(params.replyTo) : undefined;
     const silent = typeof params.silent === "boolean" ? params.silent : undefined;
     const files = Array.isArray(params.files) ? params.files.map(String) : [];
+    const buttons = Array.isArray(params.buttons)
+      ? (params.buttons as { text: string; value: string }[]).filter(b => b.text && b.value)
+      : undefined;
     await this.sendCallback({
       channel,
       chatId,
       content,
       replyTo,
       media: files,
-      metadata: silent !== undefined ? { silent } : {}
+      metadata: silent !== undefined ? { silent } : {},
+      buttons: buttons?.length ? buttons : undefined
     });
     return `Message sent to ${channel}:${chatId}`;
   }

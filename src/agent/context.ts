@@ -307,10 +307,29 @@ export class ContextManager {
     }
     if (pinnedLines.length) parts.push(`## Pinned\n${pinnedLines.join("\n")}`);
 
-    // ── 2. Contextually relevant (current message → keyword search) ────────
+    // ── 2. Contextually relevant (keyword + tag-boosted search) ───────────
     if (currentMessage) {
-      const relevant = this.memory.contextualSearch(currentMessage, 6, injectedIds);
-      const maxRelChars = Math.floor(maxChars * 0.45);
+      // Keyword search on message content
+      const kwResults = this.memory.contextualSearch(currentMessage, 12, injectedIds);
+      const relevantMap = new Map<number, typeof kwResults[0]>();
+      for (const e of kwResults) relevantMap.set(e.id, e);
+
+      // Tag-boosted: find tags from the stored taxonomy that appear in the message,
+      // then surface memories carrying those tags. This catches cases where keyword
+      // overlap is low but the topic tag is a direct word in the user's message
+      // (e.g. "billing" → pulls memories tagged "billing" even if content differs).
+      const allTags = this.memory.listTags();
+      const msgLower = currentMessage.toLowerCase();
+      const matchingTags = allTags.filter(tag => msgLower.includes(tag.toLowerCase()));
+      if (matchingTags.length) {
+        const tagResults = this.memory.searchSmart(undefined, matchingTags, true, 0, undefined, 12, 0)
+          .filter(e => !injectedIds.has(e.id) && e.risk_level < 2 && !relevantMap.has(e.id));
+        // Prepend tag-matched results (higher precision signal)
+        for (const e of tagResults) relevantMap.set(e.id, e);
+      }
+
+      const relevant = [...relevantMap.values()].slice(0, 14);
+      const maxRelChars = Math.floor(maxChars * 0.50);
       let relChars = 0;
       const relLines: string[] = [];
       for (const e of relevant) {
@@ -327,7 +346,7 @@ export class ContextManager {
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const recent = this.memory.searchSmart(undefined, undefined, true, 0)
       .filter(e => !e.pinned && e.created_at > cutoff && e.risk_level < 2 && !injectedIds.has(e.id));
-    const maxRecentChars = Math.floor(maxChars * 0.30);
+    const maxRecentChars = Math.floor(maxChars * 0.25);
     let recentChars = 0;
     const recentLines: string[] = [];
     for (const e of recent) {
@@ -337,6 +356,33 @@ export class ContextManager {
       recentChars += line.length;
     }
     if (recentLines.length) parts.push(`## Recent (last 7 days)\n${recentLines.join("\n")}`);
+
+    // ── Knowledge map (topic index) ───────────────────────────────────────
+    const km = this.memory.getKnowledgeMap();
+    let knowledgeMap = "";
+    if (km.total > 0 || km.knowledgeDocs.length > 0) {
+      const heading = km.knowledgeDocs.length > 0
+        ? `**Knowledge index** (${km.total} memories · ${km.knowledgeDocs.length} knowledge docs)`
+        : `**Knowledge index** (${km.total} memories)`;
+      const tagLine = km.byTag.length
+        ? km.byTag.map(t => `${t.tag}(${t.count})`).join(" · ")
+        : "";
+      const typeLine = km.byType.length
+        ? km.byType.map(t => `${t.type}(${t.count})`).join(" · ")
+        : "";
+      const recentLine = km.recentTags.length
+        ? `Recent topics: ${km.recentTags.join(", ")}`
+        : "";
+      const docsLine = km.knowledgeDocs.length
+        ? `Knowledge docs: ${km.knowledgeDocs.map(d => `${d.slug} ("${d.title}")`).join(", ")} — use knowledge_read to load content`
+        : "";
+      const lines = [heading];
+      if (tagLine) lines.push(`Memory topics: ${tagLine}`);
+      if (typeLine) lines.push(`Types: ${typeLine}`);
+      if (recentLine) lines.push(recentLine);
+      if (docsLine) lines.push(docsLine);
+      knowledgeMap = lines.join("\n");
+    }
 
     // ── Instructions + count hint ─────────────────────────────────────────
     const countHint = totalCount > 0
@@ -348,11 +394,14 @@ export class ContextManager {
       `Use \`memory_search\` when a topic, person, or project is mentioned that may have prior context — older memories are not shown above. ` +
       `Use \`memory_write\` immediately when you learn a fact worth keeping: preferences, decisions, names, deadlines, technical choices.`;
 
-    if (!parts.length) {
+    if (!parts.length && !knowledgeMap) {
       return `# Memory\n\n_${countHint} No entries to show._ ${instructions}`;
     }
 
-    return `# Memory\n\n${instructions}\n\n${parts.join("\n\n")}`;
+    const allParts = [instructions];
+    if (knowledgeMap) allParts.push(knowledgeMap);
+    allParts.push(...parts);
+    return `# Memory\n\n${allParts.join("\n\n")}`;
   }
 
   private buildUserContent(text: string, media: string[]): string | Message[] {

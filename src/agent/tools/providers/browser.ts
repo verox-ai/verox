@@ -11,6 +11,9 @@ import {
   BrowserNavigateTool,
   BrowserScreenshotTool,
   BrowserSelectTool,
+  BrowserSessionClearTool,
+  BrowserSessionLoadTool,
+  BrowserSessionSaveTool,
   BrowserTypeTool,
   BrowserWaitTool,
 } from "../browser.js";
@@ -41,6 +44,9 @@ export class BrowserProvider implements ToolProvider {
       new BrowserWaitTool(this.manager),
       new BrowserEvaluateTool(this.manager),
       new BrowserCloseTool(this.manager),
+      new BrowserSessionSaveTool(this.manager, services.workspace),
+      new BrowserSessionLoadTool(this.manager, services.workspace),
+      new BrowserSessionClearTool(this.manager, services.workspace),
     ];
   }
 

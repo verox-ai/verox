@@ -53,6 +53,41 @@ export interface DocFile {
   fileName?: string;
 }
 
+export interface KnowledgeDoc {
+  slug: string;
+  title: string;
+  content: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocMeta {
+  slug: string;
+  title: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryMap {
+  total: number;
+  byTag: { tag: string; count: number }[];
+  byType: { type: string; count: number }[];
+  recentTags: string[];
+  knowledgeDocs: { slug: string; title: string }[];
+}
+
+export interface SavedWorkflow {
+  id: string;
+  name: string;
+  summary: string;
+  description: string;
+  steps: string[];
+  tools_needed: string[];
+  created_at: string;
+}
+
 export interface SkillEntry {
   name: string;
   active: boolean;
@@ -132,6 +167,29 @@ export class ApiService {
   getMemoryTags(): Observable<string[]> {
     return this.http.get<string[]>('/api/memory/tags');
   }
+  getMemoryMap(): Observable<MemoryMap> {
+    return this.http.get<MemoryMap>('/api/memory/map');
+  }
+
+  // Knowledge
+  getKnowledgeDocs(): Observable<KnowledgeDocMeta[]> {
+    return this.http.get<KnowledgeDocMeta[]>('/api/knowledge');
+  }
+  getKnowledgeDoc(slug: string): Observable<KnowledgeDoc> {
+    return this.http.get<KnowledgeDoc>(`/api/knowledge/${encodeURIComponent(slug)}`);
+  }
+  saveKnowledgeDoc(doc: { slug: string; title: string; content: string; tags: string[] }): Observable<KnowledgeDoc> {
+    return this.http.post<KnowledgeDoc>('/api/knowledge', doc);
+  }
+  updateKnowledgeDoc(slug: string, doc: { title: string; content: string; tags: string[] }): Observable<KnowledgeDoc> {
+    return this.http.put<KnowledgeDoc>(`/api/knowledge/${encodeURIComponent(slug)}`, doc);
+  }
+  deleteKnowledgeDoc(slug: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/knowledge/${encodeURIComponent(slug)}`);
+  }
+  searchKnowledge(q: string): Observable<KnowledgeDocMeta[]> {
+    return this.http.get<KnowledgeDocMeta[]>(`/api/knowledge/search?q=${encodeURIComponent(q)}`);
+  }
 
   // Cron
   getCronJobs(): Observable<CronEntry[]> {
@@ -167,6 +225,14 @@ export class ApiService {
   }
   deactivateSkill(name: string): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}/deactivate`, {});
+  }
+
+  // Workflows
+  getWorkflows(): Observable<SavedWorkflow[]> {
+    return this.http.get<SavedWorkflow[]>('/api/workflows');
+  }
+  deleteWorkflow(name: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/workflows/${encodeURIComponent(name)}`);
   }
 
   // Logs

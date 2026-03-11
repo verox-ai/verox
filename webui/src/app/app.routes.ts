@@ -17,6 +17,8 @@ export const routes: Routes = [
       { path: 'settings/memory',   loadComponent: () => import('./pages/settings/memory/memory.component').then(m => m.MemoryComponent) },
       { path: 'settings/cron',     loadComponent: () => import('./pages/settings/cron/cron.component').then(m => m.CronComponent) },
       { path: 'settings/docs',     loadComponent: () => import('./pages/settings/docs/docs.component').then(m => m.DocsComponent) },
+      { path: 'settings/workflows', loadComponent: () => import('./pages/settings/workflows/workflows.component').then(m => m.WorkflowsComponent) },
+      { path: 'settings/knowledge', loadComponent: () => import('./pages/settings/knowledge/knowledge.component').then(m => m.KnowledgeComponent) },
       { path: 'settings/logs',      loadComponent: () => import('./pages/settings/logview/logview.component').then(m => m.LogsComponent) },
       { path: 'settings/whatsapp', loadComponent: () => import('./pages/settings/whatsapp/whatsapp.component').then(m => m.WhatsAppComponent) },
       { path: '**', redirectTo: '' },

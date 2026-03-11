@@ -19,9 +19,11 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
           <li><a routerLink="/settings/vault"    routerLinkActive="active">🔐 Vault</a></li>
           <li><a routerLink="/settings/skills"   routerLinkActive="active">🧩 Skills</a></li>
           <li><a routerLink="/settings/sessions" routerLinkActive="active">📋 Sessions</a></li>
-          <li><a routerLink="/settings/memory"   routerLinkActive="active">🧠 Memory</a></li>
+          <li><a routerLink="/settings/memory"    routerLinkActive="active">🧠 Memory</a></li>
+          <li><a routerLink="/settings/knowledge" routerLinkActive="active">📖 Knowledge</a></li>
           <li><a routerLink="/settings/cron"     routerLinkActive="active">⏰ Cron</a></li>
-          <li><a routerLink="/settings/docs"     routerLinkActive="active">📚 Docs</a></li>
+          <li><a routerLink="/settings/docs"       routerLinkActive="active">📚 Docs</a></li>
+          <li><a routerLink="/settings/workflows" routerLinkActive="active">⚡ Workflows</a></li>
           <li><a routerLink="/settings/logs"      routerLinkActive="active">📄 Logs</a></li>
           <li class="nav-section">Channels</li>
           <li><a routerLink="/settings/whatsapp" routerLinkActive="active">💬 WhatsApp</a></li>

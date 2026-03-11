@@ -23,4 +23,6 @@ export type OutboundMessage = {
   replyTo?: string | null;
   media: string[];
   metadata: Record<string, unknown>;
+  /** Optional interactive buttons (rendered as Block Kit in Slack, ignored elsewhere). */
+  buttons?: { text: string; value: string }[];
 };

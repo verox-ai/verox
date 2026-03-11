@@ -97,6 +97,12 @@ export type LLMLoopParams = {
    * Core tools are always included regardless of this value.
    */
   toolContext?: string;
+  /**
+   * Tool names approved by the active workflow for this session.
+   * Tools in this set bypass the maxRisk security check — the user has
+   * explicitly confirmed the multi-step plan that uses them.
+   */
+  workflowApprovedTools?: Set<string>;
 };
 
 /**
@@ -133,7 +139,8 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
     skillSecurityOverrides,
     isSkillSigned,
     reasoningEffortLevels,
-    toolContext
+    toolContext,
+    workflowApprovedTools
   } = params;
 
   let cleanedOnce = false;
@@ -209,6 +216,51 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
     onAssistantMessage?.(response.content, toolCallDicts, response.reasoningContent ?? null);
 
     // Execute each tool and append the result.
+    // Tools flagged `parallel=true` are grouped and run concurrently within
+    // a batch; sequential tools (the default) interrupt any pending parallel
+    // batch before running. Security checks still run in declaration order
+    // so risk state accumulates correctly before each check.
+    const pendingParallel: Array<{
+      call: (typeof response.toolCalls)[0];
+      resultPromise: Promise<import("./tools/toolbase.js").ToolResult>;
+      effectiveOutRisk: RiskLevel;
+      blocked: boolean;
+      holdMsg?: string;
+    }> = [];
+
+    const flushParallel = async () => {
+      if (!pendingParallel.length) return;
+      const settled = await Promise.all(pendingParallel.map(p =>
+        p.blocked ? Promise.resolve(null) : p.resultPromise.then(r => r)
+      ));
+      for (let idx = 0; idx < pendingParallel.length; idx++) {
+        const p = pendingParallel[idx];
+        if (p.blocked) {
+          messages.push({ role: "tool", tool_call_id: p.call.id, name: p.call.name, content: p.holdMsg! });
+          onToolResult?.(p.call.id, p.call.name, p.holdMsg!);
+          continue;
+        }
+        const result = settled[idx]!;
+        const tool = tools.get(p.call.name);
+        if (tool && securityManager) securityManager.recordOutput(tool, p.effectiveOutRisk);
+        let messageContent: unknown;
+        let resultForStorage: string;
+        if (typeof result === "string") {
+          const sanitizer = new OutputSanitizer();
+          const scan = sanitizer.sanitize(result);
+          if (!scan.isSafe) logger.warn(`Password leak in tool ${p.call.name}`);
+          messageContent = scan.sanitizedText;
+          resultForStorage = result;
+        } else {
+          messageContent = result;
+          resultForStorage = JSON.stringify(result);
+        }
+        messages.push({ role: "tool", tool_call_id: p.call.id, name: p.call.name, content: messageContent });
+        onToolResult?.(p.call.id, p.call.name, resultForStorage, p.effectiveOutRisk);
+      }
+      pendingParallel.length = 0;
+    };
+
     for (const call of response.toolCalls) {
       // Security check: block high-risk tools when the context has been
       // contaminated by external content (email body, web pages, etc.).
@@ -236,7 +288,11 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
           const maxRisk = cfg?.maxRisk !== undefined
             ? riskLevelFromString(cfg.maxRisk)
             : skillVerified ? RiskLevel.Low : undefined;
-          const { allowed } = securityManager.check(tool, maxRisk);
+          // Workflow-approved tools bypass maxRisk — the user explicitly confirmed
+          // the plan that uses them. The outputRisk still applies so context taint
+          // accumulates normally, protecting exec/spawn which have maxRisk=None.
+          const workflowApproved = workflowApprovedTools?.has(call.name) ?? false;
+          const { allowed } = workflowApproved ? { allowed: true } : securityManager.check(tool, maxRisk);
           if (!allowed) {
             const levelName = RiskLevel[securityManager.level];
             const holdMsg = `[SECURITY_HOLD] Tool "${call.name}" was blocked — it requires a trusted context`
@@ -251,76 +307,72 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
         }
       }
 
-      logger.debug(`Tool call: ${call.name}  `, { args: JSON.stringify(call.arguments).slice(0, 120) });
-      onToolCall?.(call.name);
-      const result = await tools.execute(call.name, call.arguments, call.id);
-
-      // Compute the effective output risk for this tool call and raise the context
-      // level. The effective risk is the maximum of:
-      //   1. A forced level (e.g. unsigned skill → always High)
-      //   2. A config override from securityOverrides / skillSecurityOverrides
-      //   3. A dynamic level reported by the tool itself (e.g. memory_search found
-      //      high-risk entries → getLastExecuteRisk() returns High)
-      //   4. The tool's static outputRisk getter
-      let effectiveOutRisk: RiskLevel = RiskLevel.None;
-      {
-        const tool = tools.get(call.name);
-        if (tool) {
-          let cfg = securityOverrides?.[call.name];
-          let forcedOutRisk: RiskLevel | undefined;
-
-          if (call.name === "exec" && typeof call.arguments?.command === "string") {
-            const command = call.arguments.command.trim();
-            const skillName = command.split(/\s+/)[0] ?? "";
-            if (skillName && skillSecurityOverrides?.[skillName]) {
-              cfg = skillSecurityOverrides[skillName];
-            }
-            // Unsigned / tampered skills always produce High output risk because
-            // their content has not been audited (regardless of skillSecurity config).
-            // Verified skills default to Low: their code is trusted, so their output
-            // is treated more like structured metadata than raw internet content.
-            // This lets agents chain multiple verified skill calls (search → fetch)
-            // within the same user turn without triggering a SECURITY_HOLD.
-            // The user can tighten or loosen this per skill via
-            // tools.skillSecurity.<skill>.outputRisk in config.
-            if (isSkillSigned && skillName) {
-              const signed = isSkillSigned(command);
-              if (signed !== true) {
-                forcedOutRisk = RiskLevel.High;
-              } else if (cfg?.outputRisk === undefined) {
-                forcedOutRisk = RiskLevel.Low;
-              }
-            }
-          }
-
-          const configOutRisk = forcedOutRisk
-            ?? (cfg?.outputRisk !== undefined ? riskLevelFromString(cfg.outputRisk) : undefined);
-
-          // Allow tools to report a dynamic risk level based on what they returned
-          // at runtime (e.g. memory_search returning high-risk memory entries).
-          const dynamicRisk = tool.getLastExecuteRisk();
-          const baseRisk = configOutRisk ?? tool.outputRisk;
-          effectiveOutRisk = dynamicRisk !== undefined
-            ? Math.max(dynamicRisk, baseRisk) as RiskLevel
-            : baseRisk;
-
-          if (securityManager) {
-            securityManager.recordOutput(tool, effectiveOutRisk);
+      // Helper: compute effectiveOutRisk for a call (does not record it yet).
+      const computeOutRisk = (callName: string, callArgs: Record<string, unknown>): RiskLevel => {
+        const tool = tools.get(callName);
+        if (!tool) return RiskLevel.None;
+        let cfg = securityOverrides?.[callName];
+        let forcedOutRisk: RiskLevel | undefined;
+        if (callName === "exec" && typeof callArgs?.command === "string") {
+          const command = (callArgs.command as string).trim();
+          const skillName = command.split(/\s+/)[0] ?? "";
+          if (skillName && skillSecurityOverrides?.[skillName]) cfg = skillSecurityOverrides[skillName];
+          if (isSkillSigned && skillName) {
+            const signed = isSkillSigned(command);
+            if (signed !== true) forcedOutRisk = RiskLevel.High;
+            else if (cfg?.outputRisk === undefined) forcedOutRisk = RiskLevel.Low;
           }
         }
-      }
+        const configOutRisk = forcedOutRisk ?? (cfg?.outputRisk !== undefined ? riskLevelFromString(cfg.outputRisk) : undefined);
+        const dynamicRisk = tool.getLastExecuteRisk();
+        const baseRisk = configOutRisk ?? tool.outputRisk;
+        return dynamicRisk !== undefined ? Math.max(dynamicRisk, baseRisk) as RiskLevel : baseRisk;
+      };
 
-      // we also need to sanitize the tool call results
-      const sanitizer = new OutputSanitizer();
-      const toolScanResult = sanitizer.sanitize(result);
-      if (!toolScanResult.isSafe) {
-        logger.warn(`Looks like the tool call leaked some passwords ${call.name} ${JSON.stringify(call.arguments)}`)
+      const tool = tools.get(call.name);
+      const isParallel = tool?.parallel ?? false;
+
+      if (!isParallel) {
+        // Sequential: flush any pending parallel tasks first, then run inline.
+        await flushParallel();
+        logger.debug(`Tool call: ${call.name}`, { args: JSON.stringify(call.arguments).slice(0, 120) });
+        onToolCall?.(call.name);
+        const result = await tools.execute(call.name, call.arguments, call.id);
+        const effectiveOutRisk = computeOutRisk(call.name, call.arguments);
+        if (tool && securityManager) securityManager.recordOutput(tool, effectiveOutRisk);
+
+        let messageContent: unknown;
+        let resultForStorage: string;
+        if (typeof result === "string") {
+          const sanitizer = new OutputSanitizer();
+          const scan = sanitizer.sanitize(result);
+          if (!scan.isSafe) logger.warn(`Looks like the tool call leaked some passwords ${call.name} ${JSON.stringify(call.arguments)}`);
+          messageContent = scan.sanitizedText;
+          resultForStorage = result;
+        } else {
+          messageContent = result;
+          resultForStorage = JSON.stringify(result);
+        }
+        messages.push({ role: "tool", tool_call_id: call.id, name: call.name, content: messageContent });
+        onToolResult?.(call.id, call.name, resultForStorage, effectiveOutRisk);
+      } else {
+        // Parallel: start execution now, collect result later in flushParallel.
+        logger.debug(`Tool call (parallel): ${call.name}`, { args: JSON.stringify(call.arguments).slice(0, 120) });
+        onToolCall?.(call.name);
+        const effectiveOutRisk = computeOutRisk(call.name, call.arguments);
+        // Pre-record output risk so subsequent security checks in this batch see the raised level.
+        if (tool && securityManager) securityManager.recordOutput(tool, effectiveOutRisk);
+        pendingParallel.push({
+          call,
+          resultPromise: tools.execute(call.name, call.arguments, call.id),
+          effectiveOutRisk,
+          blocked: false,
+        });
       }
-      messages.push({ role: "tool", tool_call_id: call.id, name: call.name, content: toolScanResult.sanitizedText });
-      // Pass effectiveOutRisk so the session store can annotate this message;
-      // the memory extraction pipeline reads it to taint extracted memories.
-      onToolResult?.(call.id, call.name, result, effectiveOutRisk);
     }
+
+    // Flush any remaining parallel tasks at end of the tool batch.
+    await flushParallel();
 
     // After all tools in this iteration have been executed, decay the context
     // risk level by one step (High → Low). The LLM has now processed the

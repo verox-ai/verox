@@ -41,5 +41,9 @@ export function createMemoryRouter(memoryService: MemoryService): Router {
     res.json(memoryService.listTags());
   });
 
+  router.get("/map", (_req, res) => {
+    res.json(memoryService.getKnowledgeMap());
+  });
+
   return router;
 }

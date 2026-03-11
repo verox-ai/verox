@@ -302,6 +302,22 @@ export const BrowserToolConfigSchema = z.object({
   allowedDomains: z.array(z.string()).default([]),
 });
 
+export const SmtpToolConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  host: z.string().default(""),
+  port: z.number().int().default(587),
+  secure: z.boolean().default(false),
+  user: z.string().default(""),
+  password: z.string().default(""),
+  /** Default From address (e.g. "Agent <agent@example.com>"). */
+  from: z.string().default(""),
+  
+  /** Default Reply-To address. When set, all outgoing emails include this header so replies reach the user. */
+  replyTo: z.string().default(""),
+  defaultCC: z.string().default(""),
+  signature: z.string().default(""),
+});
+
 export const ToolsConfigSchema = z.object({
   web: WebToolsConfigSchema.default({}),
   exec: ExecToolConfigSchema.default({}),
@@ -309,6 +325,7 @@ export const ToolsConfigSchema = z.object({
   docs: DocStoreConfigSchema.default({}),
   browser: BrowserToolConfigSchema.default({}),
   caldav: CalDavConfigSchema.default({}),
+  smtp: SmtpToolConfigSchema.default({}),
   restrictFilesToWorkspace: z.boolean().default(false),
   restrictExecToWorkspace: z.boolean().default(false),
   /** Per-tool security overrides. Keys are tool names (e.g. "exec", "imap_read"). */

@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
-import { Tool } from "./toolbase.js";
+import { mkdirSync, readFileSync } from "node:fs";
+import { Tool, type ToolContentPart } from "./toolbase.js";
 import { RiskLevel } from "../security.js";
 import type { BrowserManager } from "src/browser/manager.js";
 
@@ -19,8 +19,11 @@ function screenshotsDir(workspace: string): string {
  * text snapshot of the visible body content.
  *
  * outputRisk = High  — the page content is external/attacker-controlled.
- * maxRisk    = None  — only callable from a clean (trusted) context because
- *                      navigation can trigger real-world side-effects.
+ * maxRisk    = High  — allowed in any context so multi-step browser automation
+ *                      (fill form → navigate → check email → confirm) runs
+ *                      without security holds. The real protection is that
+ *                      exec/spawn stay at maxRisk=None, so no shell commands
+ *                      can be triggered from a tainted browser session.
  */
 export class BrowserNavigateTool extends Tool {
   constructor(private browser: BrowserManager) { super(); }
@@ -28,7 +31,7 @@ export class BrowserNavigateTool extends Tool {
   get name() { return "browser_navigate"; }
   get description() { return "Open a URL in the browser and return the page title and visible text content."; }
   get outputRisk() { return RiskLevel.High; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -64,9 +67,9 @@ export class BrowserScreenshotTool extends Tool {
   constructor(private browser: BrowserManager, private workspace: string) { super(); }
 
   get name() { return "browser_screenshot"; }
-  get description() { return "Take a screenshot of the current browser page and save it to the screenshots/ folder."; }
-  get outputRisk() { return RiskLevel.Low; }
-  get maxRisk() { return RiskLevel.None; }
+  get description() { return "Take a screenshot of the current browser page. The image is returned inline so you can see the page state. Also saved to screenshots/ folder."; }
+  get outputRisk() { return RiskLevel.High; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -79,13 +82,17 @@ export class BrowserScreenshotTool extends Tool {
     };
   }
 
-  async execute(params: Record<string, unknown>): Promise<string> {
+  async execute(params: Record<string, unknown>): Promise<ToolContentPart[]> {
     const page = await this.browser.getPage();
     const dir = screenshotsDir(this.workspace);
     const name = String(params["filename"] ?? `screenshot-${Date.now()}`).replace(/[^a-z0-9_-]/gi, "_");
     const path = join(dir, `${name}.png`);
     await page.screenshot({ path, fullPage: Boolean(params["fullPage"] ?? false) });
-    return `Screenshot saved to: ${path}`;
+    const b64 = readFileSync(path).toString("base64");
+    return [
+      { type: "text", text: `Screenshot saved to: ${path}` },
+      { type: "image_url", image_url: { url: `data:image/png;base64,${b64}` } },
+    ];
   }
 }
 
@@ -97,7 +104,7 @@ export class BrowserGetContentTool extends Tool {
   get name() { return "browser_get_content"; }
   get description() { return "Get the text content of the current page or a specific element (CSS selector)."; }
   get outputRisk() { return RiskLevel.High; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -133,7 +140,7 @@ export class BrowserClickTool extends Tool {
   get name() { return "browser_click"; }
   get description() { return "Click an element identified by a CSS selector or visible text."; }
   get outputRisk() { return RiskLevel.None; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -167,7 +174,7 @@ export class BrowserTypeTool extends Tool {
   get name() { return "browser_type"; }
   get description() { return "Type text into an input field identified by a CSS selector."; }
   get outputRisk() { return RiskLevel.None; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -203,7 +210,7 @@ export class BrowserSelectTool extends Tool {
   get name() { return "browser_select"; }
   get description() { return "Select an option in a <select> dropdown by value or visible label."; }
   get outputRisk() { return RiskLevel.None; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -239,7 +246,7 @@ export class BrowserWaitTool extends Tool {
   get name() { return "browser_wait"; }
   get description() { return "Wait for an element to appear or for the URL to match a pattern."; }
   get outputRisk() { return RiskLevel.None; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -275,7 +282,7 @@ export class BrowserEvaluateTool extends Tool {
   get name() { return "browser_evaluate"; }
   get description() { return "Run JavaScript in the current page context and return the result as JSON."; }
   get outputRisk() { return RiskLevel.High; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
 
   get parameters(): Record<string, unknown> {
     return {
@@ -296,6 +303,109 @@ export class BrowserEvaluateTool extends Tool {
   }
 }
 
+// ─── browser_session_save ─────────────────────────────────────────────────
+
+/**
+ * Saves the current browser session (cookies, localStorage) to a named file
+ * so it can be reloaded in a future agent run. Useful after completing a login
+ * flow — save the session and load it in subsequent workflows to skip re-auth.
+ */
+export class BrowserSessionSaveTool extends Tool {
+  constructor(private browser: BrowserManager, private workspace: string) { super(); }
+
+  get name() { return "browser_session_save"; }
+  get description() { return "Save the current browser session (cookies, localStorage) to a named file. Load it later with browser_session_load to skip re-authentication in future runs."; }
+  get outputRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
+
+  get parameters(): Record<string, unknown> {
+    return {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Session name (e.g. 'github', 'shopify-staging'). Used as the filename." }
+      },
+      required: ["name"]
+    };
+  }
+
+  async execute(params: Record<string, unknown>): Promise<string> {
+    const name = String(params["name"] ?? "").trim();
+    if (!name) return "Error: name is required";
+    try {
+      const path = await this.browser.saveSession(name, this.workspace);
+      return `Session "${name}" saved to: ${path}`;
+    } catch (err) {
+      return `Error saving session: ${String(err)}`;
+    }
+  }
+}
+
+// ─── browser_session_load ─────────────────────────────────────────────────
+
+export class BrowserSessionLoadTool extends Tool {
+  constructor(private browser: BrowserManager, private workspace: string) { super(); }
+
+  get name() { return "browser_session_load"; }
+  get description() { return "Load a previously saved browser session by name. Restores cookies and localStorage so you are already logged in. Use browser_session_save to persist a session after a successful login."; }
+  get outputRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
+
+  get parameters(): Record<string, unknown> {
+    return {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Session name to load (must have been saved with browser_session_save)." }
+      },
+      required: ["name"]
+    };
+  }
+
+  async execute(params: Record<string, unknown>): Promise<string> {
+    const name = String(params["name"] ?? "").trim();
+    if (!name) return "Error: name is required";
+    const available = this.browser.listSessions(this.workspace);
+    try {
+      await this.browser.loadSession(name, this.workspace);
+      return `Session "${name}" loaded. You are now using the saved cookies and storage state.`;
+    } catch (err) {
+      const hint = available.length
+        ? `Available sessions: ${available.join(", ")}`
+        : "No saved sessions found.";
+      return `Error loading session "${name}": ${String(err)}. ${hint}`;
+    }
+  }
+}
+
+// ─── browser_session_clear ────────────────────────────────────────────────
+
+export class BrowserSessionClearTool extends Tool {
+  constructor(private browser: BrowserManager, private workspace: string) { super(); }
+
+  get name() { return "browser_session_clear"; }
+  get description() { return "Delete a saved browser session file. Use this when credentials have changed or the session has expired."; }
+  get outputRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
+
+  get parameters(): Record<string, unknown> {
+    return {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Session name to delete." }
+      },
+      required: ["name"]
+    };
+  }
+
+  async execute(params: Record<string, unknown>): Promise<string> {
+    const name = String(params["name"] ?? "").trim();
+    if (!name) return "Error: name is required";
+    const deleted = this.browser.clearSession(name, this.workspace);
+    return deleted
+      ? `Session "${name}" deleted.`
+      : `No saved session found with name "${name}". Available: ${this.browser.listSessions(this.workspace).join(", ") || "none"}`;
+  }
+}
+
 // ─── browser_close ────────────────────────────────────────────────────────
 
 export class BrowserCloseTool extends Tool {
@@ -304,7 +414,7 @@ export class BrowserCloseTool extends Tool {
   get name() { return "browser_close"; }
   get description() { return "Close the browser session and release all resources."; }
   get outputRisk() { return RiskLevel.None; }
-  get maxRisk() { return RiskLevel.None; }
+  get maxRisk() { return RiskLevel.High; }
   get parameters(): Record<string, unknown> { return { type: "object", properties: {} }; }
 
   async execute(): Promise<string> {

@@ -37,6 +37,8 @@ export class SlackChannel extends BaseChannel<Config["channels"]["slack"]> {
       await ack();
       if (type === "events_api") {
         await this.handleEvent(body?.event as Record<string, unknown>);
+      } else if (type === "interactive") {
+        await this.handleInteractive(body as Record<string, unknown>);
       }
     });
 
@@ -111,10 +113,75 @@ export class SlackChannel extends BaseChannel<Config["channels"]["slack"]> {
       return;
     }
 
-    await this.webClient.chat.postMessage({
-      channel: channel,
-      text: msg.content ?? "",
-      thread_ts: useThread ? threadTs : undefined
+    if (msg.buttons && msg.buttons.length > 0) {
+      await this.webClient.chat.postMessage({
+        channel,
+        text: msg.content ?? "",
+        thread_ts: useThread ? threadTs : undefined,
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: msg.content ?? "" }
+          },
+          {
+            type: "actions",
+            elements: msg.buttons.map((btn, i) => ({
+              type: "button",
+              text: { type: "plain_text", text: btn.text, emoji: true },
+              value: btn.value,
+              action_id: `btn_${i}`
+            }))
+          }
+        ]
+      });
+    } else {
+      await this.webClient.chat.postMessage({
+        channel: channel,
+        text: msg.content ?? "",
+        thread_ts: useThread ? threadTs : undefined
+      });
+    }
+  }
+
+  private async handleInteractive(body: Record<string, unknown>): Promise<void> {
+    if (body.type !== "block_actions") return;
+    const actions = body.actions as Array<Record<string, unknown>> | undefined;
+    if (!actions || actions.length === 0) return;
+
+    const action = actions[0];
+    const value = action.value as string | undefined;
+    if (!value) return;
+
+    const user = (body.user as Record<string, unknown> | undefined)?.id as string | undefined;
+    const channel = (body.channel as Record<string, unknown> | undefined)?.id as string | undefined;
+    if (!user || !channel) return;
+
+    if (!this.isAllowedInSlack(user, channel, "im")) {
+      this.logger.warn("Interactive action from disallowed user", { user, channel });
+      return;
+    }
+
+    // Send a quick acknowledgment so the user knows their click was received
+    const buttonLabel = (action.text as Record<string, unknown> | undefined)?.text as string | undefined;
+    const ackText = buttonLabel ? `_${buttonLabel} — got it, working on it…_` : `_Got it, working on it…_`;
+    try {
+      await this.webClient!.chat.postMessage({ channel, text: ackText });
+    } catch {
+      // ignore
+    }
+
+    // Route the selection back to the agent as a new user message
+    await this.handleMessage({
+      senderId: user,
+      chatId: channel,
+      content: `[User selected: ${value}]`,
+      media: [],
+      metadata: {
+        slack: {
+          channel_type: "im",
+          interactive: true
+        }
+      }
     });
   }
 
