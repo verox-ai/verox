@@ -21,6 +21,8 @@ export const routes: Routes = [
       { path: 'settings/knowledge', loadComponent: () => import('./pages/settings/knowledge/knowledge.component').then(m => m.KnowledgeComponent) },
       { path: 'settings/logs',      loadComponent: () => import('./pages/settings/logview/logview.component').then(m => m.LogsComponent) },
       { path: 'settings/whatsapp', loadComponent: () => import('./pages/settings/whatsapp/whatsapp.component').then(m => m.WhatsAppComponent) },
+      { path: 'settings/rss',     loadComponent: () => import('./pages/settings/rss/rss.component').then(m => m.RssComponent) },
+      { path: 'settings/prompts', loadComponent: () => import('./pages/settings/prompts/prompts.component').then(m => m.PromptsComponent) },
       { path: '**', redirectTo: '' },
     ],
   },

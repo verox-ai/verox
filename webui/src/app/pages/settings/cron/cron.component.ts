@@ -288,8 +288,8 @@ function entryToForm(j: CronEntry): JobForm {
     .label { display:block; font-size:11px; color:var(--text-muted); margin-bottom:4px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
     .form-row { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
     .form-row > div { min-width:140px; flex:1; }
-    .preview { font-size:12px; color:var(--accent); background:rgba(59,130,246,.08); border-radius:6px; padding:6px 10px; margin-bottom:12px; font-weight:500; }
-    .row-editing td { background:rgba(59,130,246,.04); }
+    .preview { font-size:12px; color:var(--accent); background:var(--active-bg); border-radius:6px; padding:6px 10px; margin-bottom:12px; font-weight:500; }
+    .row-editing td { background:var(--hover-bg); }
     .edit-row td { padding:0 !important; }
     .edit-panel { padding:16px; border-top:1px solid var(--border); }
   `],

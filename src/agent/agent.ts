@@ -42,6 +42,8 @@ import { KnowledgeProvider } from "./tools/providers/knowledge.js";
 import { SmtpProvider } from "./tools/providers/smtp.js";
 import { WorkflowService } from "./workflow.js";
 import { WorkflowActivateTool, WorkflowCancelTool, WorkflowListTool, WorkflowPlanTool, WorkflowSaveTool } from "./tools/workflow.js";
+import type { RssService } from "src/rss/service.js";
+import { RssFetchTool, RssSubscribeTool, RssUnsubscribeTool, RssListTool, RssCheckTool } from "./tools/rss.js";
 
 
 /**
@@ -261,6 +263,15 @@ export class Agent {
     /** Registers the cron tool. Call after container is fully resolved to avoid circular DI. */
     registerCronTool(cronService: CronService): void {
         this.tools.register(new CronTool(cronService));
+    }
+
+    /** Registers RSS tools. Call after container is fully resolved to avoid circular DI. */
+    registerRssService(rssService: RssService): void {
+        this.tools.register(new RssFetchTool(rssService));
+        this.tools.register(new RssSubscribeTool(rssService));
+        this.tools.register(new RssUnsubscribeTool(rssService));
+        this.tools.register(new RssListTool(rssService));
+        this.tools.register(new RssCheckTool(rssService));
     }
 
     /**

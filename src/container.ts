@@ -22,6 +22,7 @@ import { SkillManifestService } from "./vault/manifest.js";
 import { ReflectionService } from "./cron/reflection";
 import { APIService } from "./api/apiservice";
 import { McpService } from "./mcp/service.js";
+import { RssService } from "./rss/service.js";
 
 const dataPath = getDataPath();
 const workspace = getWorkspacePath();
@@ -57,6 +58,7 @@ container.registerSingleton(CronService);
 container.registerSingleton(ReflectionService);
 container.registerSingleton(McpService);
 container.registerSingleton(APIService);
+container.registerSingleton(RssService);
 
 
 export { container };

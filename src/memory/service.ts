@@ -534,6 +534,23 @@ export class MemoryService {
     return "deleted";
   }
 
+  /** Updates content, tags, and/or memory_type of an existing entry. Protected entries are allowed (UI edit). */
+  updateEntry(id: number, patch: { content?: string; tags?: string[]; memory_type?: string }): "updated" | "not_found" {
+    const row = this.db.prepare("SELECT id FROM memory WHERE id = ?").get(id);
+    if (!row) return "not_found";
+    if (patch.content !== undefined) {
+      this.db.prepare("UPDATE memory SET content = ? WHERE id = ?").run(patch.content, id);
+    }
+    if (patch.memory_type !== undefined) {
+      this.db.prepare("UPDATE memory SET type = ? WHERE id = ?").run(patch.memory_type, id);
+    }
+    if (patch.tags !== undefined) {
+      this.db.prepare("DELETE FROM tags WHERE memory_id = ?").run(id);
+      this.insertTagsRaw(id, patch.tags);
+    }
+    return "updated";
+  }
+
   /** Updates the protected flag. CLI-only. */
   setProtected(id: number, protect: boolean): "updated" | "not_found" {
     const row = this.db.prepare("SELECT id FROM memory WHERE id = ?").get(id);

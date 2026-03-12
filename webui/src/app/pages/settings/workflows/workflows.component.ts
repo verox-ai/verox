@@ -61,13 +61,13 @@ import { ApiService, SavedWorkflow } from '../../../core/api.service';
     .workflow-summary { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; }
     .workflow-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
     .tool-badge {
-      background: rgba(59,130,246,.12); color: var(--accent);
-      border: 1px solid rgba(59,130,246,.25);
+      background: var(--active-bg); color: var(--accent);
+      border: 1px solid var(--accent-muted);
       padding: 1px 8px; border-radius: 10px; font-size: 11px; font-family: monospace;
     }
     .workflow-steps { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); line-height: 1.7; }
     .btn-icon { background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--text-muted); }
-    .btn-icon.danger:hover { background: var(--danger, #c0392b); color: #fff; }
+    .btn-icon.danger:hover { background: var(--danger); color: #fff; }
     .btn-icon:disabled { opacity: 0.4; cursor: default; }
   `]
 })

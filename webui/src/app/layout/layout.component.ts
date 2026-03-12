@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 @Component({
@@ -22,13 +22,20 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
           <li><a routerLink="/settings/memory"    routerLinkActive="active">🧠 Memory</a></li>
           <li><a routerLink="/settings/knowledge" routerLinkActive="active">📖 Knowledge</a></li>
           <li><a routerLink="/settings/cron"     routerLinkActive="active">⏰ Cron</a></li>
-          <li><a routerLink="/settings/docs"       routerLinkActive="active">📚 Docs</a></li>
+          <li><a routerLink="/settings/docs"     routerLinkActive="active">📚 Docs</a></li>
           <li><a routerLink="/settings/workflows" routerLinkActive="active">⚡ Workflows</a></li>
-          <li><a routerLink="/settings/logs"      routerLinkActive="active">📄 Logs</a></li>
+          <li><a routerLink="/settings/logs"     routerLinkActive="active">📄 Logs</a></li>
+          <li><a routerLink="/settings/prompts"  routerLinkActive="active">✍️ Prompts</a></li>
+          <li><a routerLink="/settings/rss"      routerLinkActive="active">📡 RSS</a></li>
           <li class="nav-section">Channels</li>
           <li><a routerLink="/settings/whatsapp" routerLinkActive="active">💬 WhatsApp</a></li>
         </ul>
-        <div class="logout" (click)="logout()">Sign out</div>
+        <div class="sidebar-footer">
+          <button class="theme-btn" (click)="toggleTheme()" [title]="isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
+            {{ isDark() ? '☀️' : '🌙' }} {{ isDark() ? 'Light mode' : 'Dark mode' }}
+          </button>
+          <div class="logout" (click)="logout()">Sign out</div>
+        </div>
       </nav>
       <main class="content">
         <router-outlet />
@@ -47,29 +54,53 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
       display: flex; align-items: center; gap: 8px;
       padding: 0 16px 20px; font-weight: 600; font-size: 15px;
     }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
-    ul { list-style: none; padding: 0; margin: 0; flex: 1; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+    ul { list-style: none; padding: 0; margin: 0; flex: 1; overflow-y: auto; }
     li a {
       display: block; padding: 7px 16px; color: var(--text-muted);
       text-decoration: none; font-size: 13.5px; border-radius: 6px; margin: 1px 8px;
       transition: background .12s, color .12s;
     }
-    li a:hover { background: rgba(255,255,255,.05); color: var(--text); }
-    li a.active { background: rgba(59,130,246,.15); color: var(--accent); }
+    li a:hover { background: var(--hover-bg); color: var(--text); }
+    li a.active { background: var(--badge-blue-bg); color: var(--accent); }
     .nav-section {
       padding: 12px 16px 4px; font-size: 10px; font-weight: 700;
       letter-spacing: .08em; color: var(--text-muted); text-transform: uppercase;
     }
-    .logout {
-      padding: 10px 16px; font-size: 12px; color: var(--text-muted);
-      cursor: pointer; margin: 8px;
+    .sidebar-footer { padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .theme-btn {
+      display: flex; align-items: center; gap: 6px;
+      width: 100%; padding: 8px 10px; background: none; border: none;
+      color: var(--text-muted); font-size: 12px; cursor: pointer;
       border-radius: 6px; transition: background .12s;
     }
-    .logout:hover { background: rgba(255,255,255,.05); color: var(--text); }
+    .theme-btn:hover { background: var(--hover-bg); color: var(--text); }
+    .logout {
+      padding: 8px 10px; font-size: 12px; color: var(--text-muted);
+      cursor: pointer; border-radius: 6px; transition: background .12s;
+    }
+    .logout:hover { background: var(--hover-bg); color: var(--text); }
     .content { flex: 1; overflow: auto; }
   `],
 })
-export class LayoutComponent {
+export class LayoutComponent implements OnInit {
+  isDark = signal(true);
+
+  ngOnInit() {
+    const saved = localStorage.getItem('verox_theme') ?? 'dark';
+    this.applyTheme(saved === 'light' ? 'light' : 'dark');
+  }
+
+  toggleTheme() {
+    this.applyTheme(this.isDark() ? 'light' : 'dark');
+  }
+
+  private applyTheme(theme: 'light' | 'dark') {
+    this.isDark.set(theme === 'dark');
+    document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : '');
+    localStorage.setItem('verox_theme', theme);
+  }
+
   logout() {
     localStorage.removeItem('verox_token');
     location.href = '/login';

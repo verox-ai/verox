@@ -19,6 +19,15 @@ export function createMemoryRouter(memoryService: MemoryService): Router {
     res.json({ entries, page, hasMore });
   });
 
+  router.patch("/:id", (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    const { content, tags, memory_type } = req.body as { content?: string; tags?: string[]; memory_type?: string };
+    const result = memoryService.updateEntry(id, { content, tags, memory_type });
+    if (result === "not_found") { res.status(404).json({ error: "Memory not found" }); return; }
+    res.json({ ok: true });
+  });
+
   router.delete("/:id", (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {

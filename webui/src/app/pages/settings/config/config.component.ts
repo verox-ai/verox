@@ -215,16 +215,16 @@ interface SectionDef {
       transition: background .15s, color .15s;
     }
     .subtab:hover { color: var(--text); }
-    .subtab.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .subtab.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px var(--border); }
 
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
     .card-title {
       padding: 12px 16px; font-size: 13px; font-weight: 600;
-      border-bottom: 1px solid var(--border); background: rgba(0,0,0,.015);
+      border-bottom: 1px solid var(--border); background: var(--table-header-bg);
     }
     .card-title-row {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 12px 16px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.015);
+      padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--table-header-bg);
     }
     .card-title-text { font-size: 13px; font-weight: 600; }
 
@@ -261,10 +261,10 @@ interface SectionDef {
     .add-record-input { flex: 1; }
     .btn-remove {
       padding: 4px 10px; font-size: 12px; border-radius: 4px;
-      border: 1px solid var(--danger, #e53e3e); background: none;
-      color: var(--danger, #e53e3e); cursor: pointer;
+      border: 1px solid var(--danger); background: none;
+      color: var(--danger); cursor: pointer;
     }
-    .btn-remove:hover { background: var(--danger, #e53e3e); color: white; }
+    .btn-remove:hover { background: var(--danger); color: white; }
     .empty-hint { color: var(--text-muted); font-size: 13px; padding: 20px; text-align: center; }
     .mcp-status-badge {
       display: inline-flex; align-items: center; gap: 5px;
@@ -273,8 +273,8 @@ interface SectionDef {
       background: color-mix(in srgb, var(--text-muted) 15%, transparent);
       color: var(--text-muted);
     }
-    .mcp-status-badge.connected { background: color-mix(in srgb, #38a169 20%, transparent); color: #38a169; }
-    .mcp-status-badge.error     { background: color-mix(in srgb, #e53e3e 20%, transparent); color: #e53e3e; }
+    .mcp-status-badge.connected { background: color-mix(in srgb, var(--success) 20%, transparent); color: var(--success); }
+    .mcp-status-badge.error     { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
     .mcp-dot {
       width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
       background: currentColor;

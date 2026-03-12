@@ -125,17 +125,17 @@ import { ApiService, KnowledgeDoc, KnowledgeDocMeta } from '../../../core/api.se
     .markdown-body p { margin: .5em 0; }
     .markdown-body ul,.markdown-body ol { padding-left: 1.4em; margin: .5em 0; }
     .markdown-body li { margin: .2em 0; }
-    .markdown-body code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 12px; }
-    .markdown-body pre { background: rgba(255,255,255,.06); padding: 12px; border-radius: 6px; overflow-x: auto; }
+    .markdown-body code { background: var(--surface-hover); padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+    .markdown-body pre { background: var(--surface-hover); padding: 12px; border-radius: 6px; overflow-x: auto; }
     .markdown-body pre code { background: none; padding: 0; }
     .markdown-body blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--text-muted); margin: .5em 0; }
-    .markdown-body a { color: #7eb8f7; }
+    .markdown-body a { color: var(--link-color); }
     .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
     .markdown-body table { border-collapse: collapse; width: 100%; }
     .markdown-body th,.markdown-body td { border: 1px solid var(--border); padding: 6px 10px; }
-    .markdown-body th { background: rgba(255,255,255,.05); font-weight: 600; }
+    .markdown-body th { background: var(--hover-bg); font-weight: 600; }
     .editor-actions { display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-    .error-text { color: #f87171; font-size: 13px; }
+    .error-text { color: var(--error-text); font-size: 13px; }
     .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
     .doc-card { padding: 16px; }
     .doc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }

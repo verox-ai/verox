@@ -91,22 +91,51 @@ import { ApiService, MemoryEntry, MemoryMap } from '../../../core/api.service';
             </thead>
             <tbody>
               @for (e of entries(); track e.id) {
-                <tr>
+                <tr class="mem-row" (click)="startEdit(e)" [class.editing]="editingId() === e.id">
                   <td style="color:var(--text-muted)">{{ e.id }}</td>
                   <td style="max-width:300px"><div class="truncate">{{ e.content }}</div></td>
                   <td>
                     @for (t of e.tags; track t) {
-                      <span class="badge badge-blue" style="margin:1px;cursor:pointer" (click)="filterByTag(t)">{{ t }}</span>
+                      <span class="badge badge-blue" style="margin:1px;cursor:pointer" (click)="$event.stopPropagation(); filterByTag(t)">{{ t }}</span>
                     }
                   </td>
                   <td>@if (e.memory_type) { <span class="badge badge-gray">{{ e.memory_type }}</span> }</td>
                   <td style="color:var(--text-muted)">{{ (e.confidence * 100).toFixed(0) }}%</td>
                   <td style="color:var(--text-muted);white-space:nowrap">{{ e.created_at | date:'dd MMM' }}</td>
-                  <td>
+                  <td (click)="$event.stopPropagation()">
                     <button class="btn btn-danger" style="padding:3px 8px;font-size:12px"
                       [disabled]="e.protected" (click)="delete(e)">Del</button>
                   </td>
                 </tr>
+                @if (editingId() === e.id) {
+                  <tr class="edit-row">
+                    <td colspan="7">
+                      <div class="edit-panel">
+                        <div class="edit-fields">
+                          <div class="edit-field">
+                            <label>Content</label>
+                            <textarea class="input edit-textarea" [(ngModel)]="editForm.content"></textarea>
+                          </div>
+                          <div class="edit-field edit-field-sm">
+                            <label>Tags <span style="color:var(--text-muted);font-size:11px">(comma-separated)</span></label>
+                            <input class="input" [(ngModel)]="editForm.tagsRaw" />
+                          </div>
+                          <div class="edit-field edit-field-sm">
+                            <label>Type</label>
+                            <input class="input" [(ngModel)]="editForm.memory_type" placeholder="fact, preference, todo…" />
+                          </div>
+                        </div>
+                        <div class="edit-actions">
+                          <button class="btn btn-primary" (click)="saveEdit(e)" [disabled]="saving()">
+                            {{ saving() ? 'Saving…' : 'Save' }}
+                          </button>
+                          <button class="btn btn-ghost" (click)="cancelEdit()">Cancel</button>
+                          @if (saveError()) { <span class="error-text">{{ saveError() }}</span> }
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                }
               }
             </tbody>
           </table>
@@ -134,8 +163,20 @@ import { ApiService, MemoryEntry, MemoryMap } from '../../../core/api.service';
       color: var(--text-muted); min-width: 52px; padding-top: 3px; }
     .badge-row { display: flex; flex-wrap: wrap; gap: 4px; }
     .badge-count { opacity: .6; font-size: 10px; margin-left: 2px; }
-    .badge-purple { background: rgba(139,92,246,.15); color: #a78bfa; }
-    .badge-green { background: rgba(34,197,94,.15); color: #4ade80; }
+    .badge-purple { background: var(--purple-muted); color: var(--purple); }
+    .badge-green { background: var(--success-muted); color: var(--success-text); }
+    .mem-row { cursor: pointer; transition: background .1s; }
+    .mem-row:hover { background: var(--hover-bg); }
+    .mem-row.editing { background: var(--active-bg); }
+    .edit-row td { padding: 0 !important; border-top: none; }
+    .edit-panel { padding: 12px 16px 16px; background: var(--surface-hover); border-bottom: 1px solid var(--border); }
+    .edit-fields { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .edit-field { display: flex; flex-direction: column; gap: 4px; flex: 2; min-width: 200px; }
+    .edit-field-sm { flex: 1; min-width: 140px; }
+    .edit-field label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+    .edit-textarea { min-height: 80px; resize: vertical; font-size: 13px; }
+    .edit-actions { display: flex; align-items: center; gap: 10px; }
+    .error-text { color: var(--error-text); font-size: 13px; }
   `],
 })
 export class MemoryComponent implements OnInit {
@@ -144,8 +185,13 @@ export class MemoryComponent implements OnInit {
   map = signal<MemoryMap | null>(null);
   page = signal(0);
   hasMore = signal(false);
+  editingId = signal<number | null>(null);
+  saving = signal(false);
+  saveError = signal('');
   query = '';
   tag = '';
+
+  editForm = { content: '', tagsRaw: '', memory_type: '' };
 
   constructor(private api: ApiService) {}
 
@@ -160,18 +206,46 @@ export class MemoryComponent implements OnInit {
       .subscribe(r => { this.entries.set(r.entries); this.hasMore.set(r.hasMore); });
   }
 
-  filterByTag(t: string) {
-    this.tag = t;
-    this.resetAndSearch();
-  }
-
-  resetAndSearch() { this.page.set(0); this.load(); }
-  nextPage() { this.page.update(p => p + 1); this.load(); }
-  prevPage() { this.page.update(p => Math.max(0, p - 1)); this.load(); }
+  filterByTag(t: string) { this.tag = t; this.resetAndSearch(); }
+  resetAndSearch() { this.page.set(0); this.cancelEdit(); this.load(); }
+  nextPage() { this.page.update(p => p + 1); this.cancelEdit(); this.load(); }
+  prevPage() { this.page.update(p => Math.max(0, p - 1)); this.cancelEdit(); this.load(); }
 
   tagFontSize(count: number): number {
     const max = Math.max(...(this.map()?.byTag.map(t => t.count) ?? [1]));
     return Math.round(10 + (count / max) * 5);
+  }
+
+  startEdit(e: MemoryEntry) {
+    if (this.editingId() === e.id) { this.cancelEdit(); return; }
+    this.editForm = { content: e.content, tagsRaw: e.tags.join(', '), memory_type: e.memory_type ?? '' };
+    this.editingId.set(e.id);
+    this.saveError.set('');
+  }
+
+  cancelEdit() { this.editingId.set(null); this.saveError.set(''); }
+
+  saveEdit(e: MemoryEntry) {
+    const tags = this.editForm.tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+    this.saving.set(true);
+    this.saveError.set('');
+    this.api.updateMemory(e.id, {
+      content: this.editForm.content,
+      tags,
+      memory_type: this.editForm.memory_type || undefined,
+    }).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.editingId.set(null);
+        this.load();
+        this.api.getMemoryTags().subscribe(t => this.tags.set(t));
+        this.api.getMemoryMap().subscribe(m => this.map.set(m));
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.saveError.set(err?.error?.error ?? 'Save failed.');
+      },
+    });
   }
 
   delete(e: MemoryEntry) {

@@ -88,13 +88,31 @@ export interface SavedWorkflow {
   created_at: string;
 }
 
+export interface RssSubscription {
+  id: string;
+  url: string;
+  name: string;
+  targets: Array<{ channel: string; chatId: string }>;
+  schedule: string;
+  manual?: boolean;
+  lastChecked?: string;
+}
+
 export interface SkillEntry {
   name: string;
   active: boolean;
   hasConfig: boolean;
   hasEntry: boolean;
   description: string | null;
+  /** true=signed+valid, false=tampered, null=unsigned, undefined=vault unavailable */
+  signed?: boolean | null;
 }
+
+export interface SkillFiles {
+  skillMd: string;
+  configJson: string;
+}
+
 
 export interface ConfigUiHint {
   label?: string;
@@ -164,6 +182,9 @@ export class ApiService {
   deleteMemory(id: number): Observable<{ ok: boolean }> {
     return this.http.delete<{ ok: boolean }>(`/api/memory/${id}`);
   }
+  updateMemory(id: number, patch: { content?: string; tags?: string[]; memory_type?: string }): Observable<{ ok: boolean }> {
+    return this.http.patch<{ ok: boolean }>(`/api/memory/${id}`, patch);
+  }
   getMemoryTags(): Observable<string[]> {
     return this.http.get<string[]>('/api/memory/tags');
   }
@@ -226,6 +247,33 @@ export class ApiService {
   deactivateSkill(name: string): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}/deactivate`, {});
   }
+  listSkillFiles(name: string): Observable<string[]> {
+    return this.http.get<string[]>(`/api/skills/${encodeURIComponent(name)}/files`);
+  }
+  getSkillFile(name: string, filename: string): Observable<{ content: string }> {
+    return this.http.get<{ content: string }>(`/api/skills/${encodeURIComponent(name)}/file`, { params: { filename } });
+  }
+  saveSkillFile(name: string, filename: string, content: string): Observable<{ ok: boolean }> {
+    return this.http.put<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}/file`, { filename, content });
+  }
+  createSkillFile(name: string, filename: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}/file`, { filename });
+  }
+  deleteSkillFile(name: string, filename: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}/file`, { params: { filename } });
+  }
+  createSkill(name: string, skillMd?: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>('/api/skills', { name, skillMd });
+  }
+  deleteSkill(name: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}`);
+  }
+  signSkill(name: string): Observable<{ ok: boolean; fileCount?: number }> {
+    return this.http.post<{ ok: boolean; fileCount?: number }>(`/api/skills/${encodeURIComponent(name)}/sign`, {});
+  }
+  unsignSkill(name: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`/api/skills/${encodeURIComponent(name)}/unsign`, {});
+  }
 
   // Workflows
   getWorkflows(): Observable<SavedWorkflow[]> {
@@ -248,6 +296,31 @@ export class ApiService {
   // WhatsApp
   getWhatsAppQR(): Observable<{ status: 'authenticated' | 'pending' | 'disabled'; qr?: string }> {
     return this.http.get<{ status: 'authenticated' | 'pending' | 'disabled'; qr?: string }>('/api/whatsapp/qr');
+  }
+
+  // Prompts
+  getPromptFiles(): Observable<string[]> {
+    return this.http.get<string[]>('/api/prompts');
+  }
+  getPromptFile(filename: string): Observable<{ filename: string; content: string }> {
+    return this.http.get<{ filename: string; content: string }>(`/api/prompts/${encodeURIComponent(filename)}`);
+  }
+  savePromptFile(filename: string, content: string): Observable<{ ok: boolean }> {
+    return this.http.put<{ ok: boolean }>(`/api/prompts/${encodeURIComponent(filename)}`, { content });
+  }
+
+  // RSS
+  getRssSubscriptions(): Observable<RssSubscription[]> {
+    return this.http.get<RssSubscription[]>('/api/rss');
+  }
+  createRssSubscription(sub: { url: string; name: string; channel?: string; chatId?: string; schedule?: string; manual?: boolean }): Observable<{ ok: boolean; id: string }> {
+    return this.http.post<{ ok: boolean; id: string }>('/api/rss', sub);
+  }
+  updateRssSubscription(id: string, patch: { url?: string; name?: string; channel?: string | undefined; chatId?: string | undefined; schedule?: string | undefined; manual?: boolean }): Observable<{ ok: boolean }> {
+    return this.http.patch<{ ok: boolean }>(`/api/rss/${encodeURIComponent(id)}`, patch);
+  }
+  deleteRssSubscription(id: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/rss/${encodeURIComponent(id)}`);
   }
 
   // Onboarding

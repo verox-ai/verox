@@ -83,6 +83,32 @@ export class TelegramChannel extends BaseChannel<Config["channels"]["telegram"]>
       await this.bot?.sendMessage(msg.chat.id, `🔄 Conversation history cleared (${count} messages).`);
     });
 
+    this.bot.on("callback_query", async (query) => {
+      if (!query.message || !query.from) return;
+      if (!this.isAllowed(String(query.from.id))) {
+        await this.bot?.answerCallbackQuery(query.id, { text: "Not allowed." });
+        return;
+      }
+      await this.bot?.answerCallbackQuery(query.id);
+      const chatId = String(query.message.chat.id);
+      const value = query.data ?? "";
+      // Find button label for the ack message
+      const label = query.message.reply_markup?.inline_keyboard
+        ?.flat().find(b => b.callback_data === value)?.text ?? value;
+      // Immediate ack so user sees feedback while agent processes
+      await this.bot?.sendMessage(query.message.chat.id,
+        `_${label} — got it, working on it…_`,
+        { parse_mode: "HTML" }
+      );
+      const senderId = query.from.username
+        ? `${query.from.id}|${query.from.username}`
+        : String(query.from.id);
+      await this.dispatchToBus(senderId, chatId, `[User selected: ${value}]`, [], {
+        callback_query: true,
+        message_id: query.message.message_id,
+      });
+    });
+
     this.bot.on("message", async (msg: Message) => {
       if (!msg.text && !msg.caption && !msg.photo && !msg.voice && !msg.audio && !msg.document) {
         return;
@@ -123,17 +149,32 @@ export class TelegramChannel extends BaseChannel<Config["channels"]["telegram"]>
     const htmlContent = markdownToTelegramHtml(msg.content ?? "");
     const silent = msg.metadata?.silent === true;
     const replyTo = msg.replyTo ? Number(msg.replyTo) : undefined;
-    const options = {
-      parse_mode: "HTML" as const,
+
+    const inlineKeyboard = msg.buttons?.length
+      ? {
+          inline_keyboard: [
+            msg.buttons.map(b => ({
+              text: b.text,
+              // callback_data max 64 bytes — truncate value if needed
+              callback_data: b.value.slice(0, 64),
+            })),
+          ],
+        }
+      : undefined;
+
+    const options: TelegramBot.SendMessageOptions = {
+      parse_mode: "HTML",
       ...(replyTo ? { reply_to_message_id: replyTo } : {}),
-      ...(silent ? { disable_notification: true } : {})
+      ...(silent ? { disable_notification: true } : {}),
+      ...(inlineKeyboard ? { reply_markup: inlineKeyboard } : {}),
     };
     try {
       await this.bot.sendMessage(Number(msg.chatId), htmlContent, options);
     } catch {
       await this.bot.sendMessage(Number(msg.chatId), msg.content ?? "", {
         ...(replyTo ? { reply_to_message_id: replyTo } : {}),
-        ...(silent ? { disable_notification: true } : {})
+        ...(silent ? { disable_notification: true } : {}),
+        ...(inlineKeyboard ? { reply_markup: inlineKeyboard } : {}),
       });
     }
   }

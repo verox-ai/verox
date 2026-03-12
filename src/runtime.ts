@@ -19,6 +19,7 @@ import { VERSION } from "./version.js";
 import { APIService } from "./api/apiservice.js";
 import { WebChatChannel } from "./channels/webchat.js";
 import { McpService } from "./mcp/service.js";
+import { RssService } from "./rss/service.js";
 
 
 // Direct-message mode: process one message and exit, no channels/heartbeat/cron.
@@ -65,6 +66,10 @@ if (isOnboarding) {
   const cronService = container.resolve(CronService);
   agent.registerCronTool(cronService);
   cronService.load();
+
+  const rssService = container.resolve(RssService);
+  agent.registerRssService(rssService);
+  rssService.load();
 
   const mcpService = container.resolve(McpService);
   await agent.connectMcp(mcpService);

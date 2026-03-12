@@ -17,6 +17,8 @@ import { FALLBACK_HTML, VAULT_KEY } from "./constants";
 import { McpService } from "src/mcp/service";
 import { ChannelManager } from "src/channels/channelmanager";
 import { OnboardingService } from "src/onboarding/service";
+import { SkillManifestService } from "src/vault/manifest";
+import { RssService } from "src/rss/service";
 
 @injectable()
 export class APIService {
@@ -36,6 +38,8 @@ export class APIService {
     @inject(McpService) private readonly mcpService: McpService,
     @inject(ChannelManager) private readonly channelManager: ChannelManager,
     @inject("dataPath") private readonly dataPath: string,
+    @inject(SkillManifestService) private readonly manifestService: SkillManifestService,
+    @inject(RssService) private readonly rssService: RssService,
   ) {
 
   }
@@ -81,6 +85,8 @@ export class APIService {
       getMcpStatus: () => this.mcpService.getStatus(),
       getWhatsAppStatus: () => this.channelManager.getWhatsAppStatus(),
       onboardingService,
+      manifestService: this.manifestService,
+      rssService: this.rssService,
     }));
 
     // Angular SPA static files — resolve relative to this compiled file so the

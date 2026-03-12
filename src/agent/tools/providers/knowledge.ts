@@ -8,6 +8,7 @@ import {
   KnowledgeSearchTool,
   KnowledgeListTool,
   KnowledgeDeleteTool,
+  KnowledgeClipTool,
 } from "../knowledge.js";
 
 /** Knowledge document tools — always enabled, backed by memory.db. */
@@ -25,6 +26,7 @@ export class KnowledgeProvider implements ToolProvider {
       new KnowledgeSearchTool(services.memory),
       new KnowledgeListTool(services.memory),
       new KnowledgeDeleteTool(services.memory),
+      new KnowledgeClipTool(services.memory),
     ];
   }
 

@@ -19,8 +19,12 @@ import { createWhatsAppRouter } from "./routes/whatsapp.js";
 import { createOnboardingRouter } from "./routes/onboarding.js";
 import { createWorkflowsRouter } from "./routes/workflows.js";
 import { createKnowledgeRouter } from "./routes/knowledge.js";
+import { createRssRouter } from "./routes/rss.js";
+import { createPromptsRouter } from "./routes/prompts.js";
 import type { McpServerStatus } from "src/mcp/service.js";
 import type { OnboardingService } from "src/onboarding/service.js";
+import type { SkillManifestService } from "src/vault/manifest.js";
+import type { RssService } from "src/rss/service.js";
 
 export type ApiServices = {
   configService: ConfigService;
@@ -33,6 +37,8 @@ export type ApiServices = {
   getWhatsAppStatus: () => { enabled: boolean; authenticated: boolean; qr: string | null };
   workspace: string;
   onboardingService: OnboardingService;
+  manifestService: SkillManifestService;
+  rssService: RssService;
 };
 
 export function createApiRouter(services: ApiServices): Router {
@@ -49,12 +55,14 @@ export function createApiRouter(services: ApiServices): Router {
   router.use("/memory",   createMemoryRouter(services.memoryService));
   router.use("/cron",     createCronRouter(services.cronService));
   router.use("/docs",     createDocsRouter(services.getDocStore));
-  router.use("/skills",   createSkillsRouter(services.workspace));
+  router.use("/skills",   createSkillsRouter(services.workspace, services.manifestService));
   router.use("/logs",     createLogsRouter());
   router.use("/mcp",       createMcpRouter(services.getMcpStatus));
   router.use("/whatsapp",   createWhatsAppRouter(services.getWhatsAppStatus));
   router.use("/workflows",  createWorkflowsRouter(services.workspace));
   router.use("/knowledge",  createKnowledgeRouter(services.memoryService));
+  router.use("/rss",        createRssRouter(services.rssService));
+  router.use("/prompts",    createPromptsRouter(services.workspace));
 
   return router;
 }

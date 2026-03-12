@@ -49,11 +49,11 @@ import { ApiService, SessionHeader, SessionMessage } from '../../../core/api.ser
       padding: 10px 12px; cursor: pointer; border-radius: 6px;
       border-bottom: 1px solid var(--border); transition: background .1s;
     }
-    .session-item:hover { background: rgba(255,255,255,.04); }
-    .session-item.active { background: rgba(59,130,246,.12); }
+    .session-item:hover { background: var(--hover-bg); }
+    .session-item.active { background: var(--active-bg); }
     .session-key { font-size: 12px; font-weight: 500; word-break: break-all; }
     .session-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .msg-row { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .msg-row { padding: 8px 0; border-bottom: 1px solid var(--hover-bg); }
     .msg-row.user .msg-role { color: var(--accent); }
     .msg-role { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
     .msg-content {

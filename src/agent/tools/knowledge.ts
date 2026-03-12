@@ -1,5 +1,7 @@
 import { MemoryService } from "src/memory/service.js";
 import { Tool } from "./toolbase.js";
+import { RiskLevel } from "../security.js";
+import { APP_USER_AGENT } from "src/constants.js";
 
 /**
  * Agent tool: `knowledge_write`
@@ -202,4 +204,121 @@ export class KnowledgeDeleteTool extends Tool {
       ? `Knowledge document "${slug}" deleted.`
       : `Error: no document found with slug "${slug}".`;
   }
+}
+
+/**
+ * Agent tool: `knowledge_clip`
+ *
+ * Fetches a URL, extracts readable text (strips HTML), and saves it as a
+ * knowledge document. Useful for saving web pages, articles, documentation
+ * for later reference without re-fetching.
+ */
+export class KnowledgeClipTool extends Tool {
+  constructor(private store: MemoryService) { super(); }
+
+  get name() { return "knowledge_clip"; }
+  get outputRisk(): RiskLevel { return RiskLevel.High; }
+
+  get description() {
+    return (
+      "Fetch a URL and save its content as a knowledge document for permanent reference. " +
+      "Strips HTML to readable text. Auto-generates a slug from the URL if not provided. " +
+      "Use this to clip articles, docs, or any web page into the knowledge base."
+    );
+  }
+
+  get parameters(): Record<string, unknown> {
+    return {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to fetch and clip" },
+        title: { type: "string", description: "Document title. If omitted, extracted from the page <title> tag." },
+        slug: { type: "string", description: "Slug for the doc (kebab-case). Auto-generated from URL if omitted." },
+        tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
+      },
+      required: ["url"],
+    };
+  }
+
+  async execute(params: Record<string, unknown>): Promise<string> {
+    const url = String(params.url ?? "").trim();
+    if (!url) return "Error: url is required";
+
+    let html: string;
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": APP_USER_AGENT } });
+      if (!res.ok) return `Error: fetch failed (${res.status})`;
+      html = await res.text();
+    } catch (err) {
+      return `Error fetching URL: ${String(err)}`;
+    }
+
+    const extractedTitle = extractTitle(html);
+    const title = String(params.title ?? extractedTitle ?? url).trim();
+    const slug = String(params.slug ?? "").trim() || urlToSlug(url);
+    const tags = Array.isArray(params.tags)
+      ? params.tags.map(t => String(t).trim()).filter(Boolean)
+      : ["clipped"];
+    const content = htmlToText(html);
+
+    const doc = this.store.knowledgeWrite({ slug, title, content, tags });
+    return JSON.stringify({
+      slug: doc.slug,
+      title: doc.title,
+      chars: doc.content.length,
+      tags: doc.tags,
+      note: "Saved to knowledge base.",
+    }, null, 2);
+  }
+}
+
+function extractTitle(html: string): string | null {
+  const m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  return m ? m[1].trim() : null;
+}
+
+function urlToSlug(url: string): string {
+  try {
+    const u = new URL(url);
+    const path = (u.hostname + u.pathname)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+    return path || "clipped-page";
+  } catch {
+    return "clipped-page";
+  }
+}
+
+function htmlToText(html: string): string {
+  // Remove script/style blocks entirely
+  let text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<head[\s\S]*?<\/head>/gi, "");
+
+  // Convert block elements to newlines
+  text = text.replace(/<\/(p|div|li|h[1-6]|tr|blockquote|article|section)>/gi, "\n");
+  text = text.replace(/<br\s*\/?>/gi, "\n");
+  text = text.replace(/<li[^>]*>/gi, "• ");
+
+  // Strip remaining tags
+  text = text.replace(/<[^>]+>/g, "");
+
+  // Decode common HTML entities
+  text = text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+
+  // Collapse whitespace
+  text = text.replace(/[ \t]+/g, " ");
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  return text.trim().slice(0, 50_000);
 }

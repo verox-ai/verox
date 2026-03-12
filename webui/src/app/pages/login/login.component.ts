@@ -38,11 +38,11 @@ import { firstValueFrom } from 'rxjs';
       border-radius: 12px; padding: 32px;
     }
     .logo { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--success); }
     .subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
     .error { color: var(--danger); font-size: 12px; margin-top: 8px; }
     .hint { color: var(--text-muted); font-size: 11px; margin-top: 16px; }
-    .hint code { background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 3px; }
+    .hint code { background: var(--surface-hover); padding: 1px 4px; border-radius: 3px; }
   `],
 })
 export class LoginComponent {

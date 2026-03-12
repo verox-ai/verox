@@ -1,0 +1,8 @@
+{
+  "properties": {
+    "repoPath": {
+      "type": "string",
+      "description": "Absolute path to the git repository. Example: /home/user/myproject"
+    }
+  }
+}
