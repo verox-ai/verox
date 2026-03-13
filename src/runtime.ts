@@ -30,6 +30,7 @@ if (process.env["VEROX_DIRECT_MESSAGE"]) {
   container.resolve(ConfigService).load();
   const agent = container.resolve(Agent);
   const cronService = container.resolve(CronService);
+  cronService.setAgent(agent);
   agent.registerCronTool(cronService);
   cronService.load();
   const mcpService = container.resolve(McpService);
@@ -64,6 +65,7 @@ if (isOnboarding) {
   const heartbeat = container.resolve(HeartbeatService);
 
   const cronService = container.resolve(CronService);
+  cronService.setAgent(agent);
   agent.registerCronTool(cronService);
   cronService.load();
 

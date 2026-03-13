@@ -28,12 +28,14 @@ export class VaultService {
     return this.password !== null;
   }
 
+  /** Stores or overwrites a vault entry. Throws if vault password is not set. */
   set(key: string, value: string): void {
     const data = this.load();
     data[key] = value;
     this.save(data);
   }
 
+  /** Returns the value for `key`, or `undefined` if not found or vault is unavailable. */
   get(key: string): string | undefined {
     if (!this.isAvailable()) return undefined;
     try {
@@ -43,6 +45,7 @@ export class VaultService {
     }
   }
 
+  /** Removes `key` from the vault. Returns `true` if it existed, `false` otherwise. */
   delete(key: string): boolean {
     const data = this.load();
     if (!(key in data)) return false;
@@ -51,6 +54,7 @@ export class VaultService {
     return true;
   }
 
+  /** Returns all stored key names. Returns an empty array when vault is unavailable. */
   list(): string[] {
     if (!this.isAvailable()) return [];
     try {

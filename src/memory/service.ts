@@ -154,6 +154,27 @@ export class MemoryService {
         (memory_id INTEGER NOT NULL REFERENCES memory(id) ON DELETE CASCADE,
         related_id INTEGER NOT NULL REFERENCES memory(id) ON DELETE CASCADE,
         PRIMARY KEY(memory_id, related_id))`);
+
+    // FTS5 full-text index on memory content for ranked keyword search.
+    // Uses external content table so the FTS index stays in sync with `memory`.
+    const hasFts = (this.db.prepare(
+      "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table' AND name='memory_fts'"
+    ).get() as { cnt: number }).cnt > 0;
+    if (!hasFts) {
+      this.db.exec(`
+        CREATE VIRTUAL TABLE memory_fts USING fts5(
+          content, content='memory', content_rowid='id'
+        );
+        INSERT INTO memory_fts(memory_fts) VALUES('rebuild');
+      `);
+      this.logger.info("Created memory_fts FTS5 index");
+    }
+    // Keep FTS in sync with new inserts (memories are immutable — no update/delete triggers needed).
+    this.db.exec(`
+      CREATE TRIGGER IF NOT EXISTS memory_fts_ai AFTER INSERT ON memory BEGIN
+        INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
+      END;
+    `);
   }
 
   // ── JSONL migration ──────────────────────────────────────────────────────────
@@ -246,6 +267,11 @@ export class MemoryService {
     return this.getById(id)!;
   }
 
+  /**
+   * Like `append`, but deduplicates against existing entries with identical content.
+   * If a match is found and the new entry has higher confidence or a newer date, the
+   * old entry is superseded. Otherwise the existing entry's id is returned unchanged.
+   */
   appendWithSupersedes(item: {
     content: string;
     tags?: string[];
@@ -319,6 +345,7 @@ export class MemoryService {
   }
   // ── Query ────────────────────────────────────────────────────────────────────
 
+  /** Fetches a single memory entry by its primary key, or `null` if not found. */
   getById(id: number): MemoryEntry | null {
     const row = this.db.prepare(`
       SELECT m.*, group_concat(t.tag, ',') AS tag_list
@@ -330,6 +357,12 @@ export class MemoryService {
     return row ? this.rowToEntry(row) : null;
   }
 
+  /**
+   * Simple LIKE-based search over active memory entries.
+   * Prefer `searchSmart` or `contextualSearch` for ranked results.
+   * @param query  Substring / multi-keyword filter applied to `content`.
+   * @param tags   Optional tag allowlist (OR match).
+   */
   search(query?: string, tags?: string[], limit?: number, offset?: number): MemoryEntry[] {
     const params: unknown[] = [];
     let sql = `
@@ -362,6 +395,7 @@ export class MemoryService {
     return result;
   }
 
+  /** Returns all distinct tag names across active memory entries, alphabetically sorted. */
   listTags(): string[] {
     return (this.db.prepare(`
       SELECT DISTINCT t.tag
@@ -370,6 +404,18 @@ export class MemoryService {
       WHERE ${ACTIVE_WHERE}
       ORDER BY t.tag ASC
     `).all() as { tag: string }[]).map((r) => r.tag);
+  }
+
+  /** Returns all active tags with their entry counts, ordered by frequency. */
+  listTagsWithCounts(): { tag: string; count: number }[] {
+    return (this.db.prepare(`
+      SELECT t.tag, COUNT(*) AS cnt
+      FROM tags t
+      JOIN memory m ON m.id = t.memory_id
+      WHERE ${ACTIVE_WHERE} AND m.risk_level < 2
+      GROUP BY t.tag
+      ORDER BY cnt DESC
+    `).all() as { tag: string; cnt: number }[]).map(r => ({ tag: r.tag, count: r.cnt }));
   }
 
   // ── Supersede (agent "update/delete" path) ───────────────────────────────────
@@ -939,8 +985,9 @@ export class MemoryService {
     `).all(recentCutoff) as { tag: string }[])
       .map(r => r.tag);
 
+    // Exclude internal reflection docs (atlas + topic summaries) from the public listing.
     const knowledgeDocs = (this.db.prepare(
-      "SELECT slug, title FROM knowledge ORDER BY updated_at DESC"
+      "SELECT slug, title FROM knowledge WHERE json_extract(tags, '$') NOT LIKE '%_reflection%' AND slug NOT LIKE '\\_%' ESCAPE '\\' ORDER BY updated_at DESC"
     ).all() as { slug: string; title: string }[]);
 
     return { total, byTag, byType, recentTags, knowledgeDocs };
@@ -954,9 +1001,40 @@ export class MemoryService {
   contextualSearch(text: string, limit = 5, excludeIds: Set<number> = new Set()): MemoryEntry[] {
     const keywords = tokenizeMemory(text)
       .sort((a, b) => b.length - a.length) // prefer longer/more specific words
-      .slice(0, 8);
+      .slice(0, 10);
     if (keywords.length === 0) return [];
 
+    // Primary: FTS5 ranked full-text search with prefix matching.
+    // "api*" matches "api", "apis"; "configur*" matches "configure", "configured", etc.
+    try {
+      const ftsQuery = keywords.map(k => `${k}*`).join(" OR ");
+      const ftsRows = this.db.prepare(
+        "SELECT rowid FROM memory_fts WHERE memory_fts MATCH ? ORDER BY rank LIMIT ?"
+      ).all(ftsQuery, limit + excludeIds.size + 20) as { rowid: number }[];
+
+      if (ftsRows.length) {
+        const ids = ftsRows.map(r => r.rowid);
+        const rankOrder = new Map(ids.map((id, i) => [id, i]));
+        const placeholders = ids.map(() => "?").join(",");
+        const rows = this.db.prepare(`
+          SELECT m.*, group_concat(t.tag, ',') AS tag_list
+          FROM memory m
+          LEFT JOIN tags t ON t.memory_id = m.id
+          WHERE m.id IN (${placeholders}) AND ${ACTIVE_WHERE} AND m.risk_level < 2
+          GROUP BY m.id
+        `).all(...ids) as RawRow[];
+
+        return rows
+          .sort((a, b) => (rankOrder.get(a.id) ?? 999) - (rankOrder.get(b.id) ?? 999))
+          .map(r => this.rowToEntry(r))
+          .filter(e => !excludeIds.has(e.id))
+          .slice(0, limit);
+      }
+    } catch (err) {
+      this.logger.debug(`FTS5 contextual search failed, falling back to LIKE: ${err}`);
+    }
+
+    // Fallback: LIKE-based search (used when FTS returns no results or fails).
     const query = keywords.join(" ");
     const results = this.search(query, undefined, limit + excludeIds.size);
     return results
@@ -1095,12 +1173,17 @@ function rowToKnowledge(r: KnowledgeRow): KnowledgeDoc {
 
 const STOPWORDS = new Set([
   "the", "and", "for", "that", "this", "with", "are", "was", "has", "have",
-  "been", "will", "its", "can", "from", "not", "but", "you", "your", "user"
+  "been", "will", "its", "can", "from", "not", "but", "you", "your", "user",
+  "what", "when", "how", "who", "why", "which", "there", "their", "they",
+  "then", "than", "just", "also", "about", "would", "could", "should",
+  "very", "more", "some", "any", "all", "one", "now", "use", "used", "using",
+  "get", "got", "let", "set", "per", "new", "old", "via", "well", "like",
 ]);
 
-/** Lowercases and splits text into meaningful word tokens, filtering stopwords. */
+/** Lowercases and splits text into meaningful word tokens, filtering stopwords.
+ *  Minimum token length is 2 to capture short but meaningful terms like "ai", "ui", "db". */
 function tokenizeMemory(text: string): string[] {
-  return text.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
+  return text.toLowerCase().split(/\W+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
 }
 
 /** Jaccard similarity on word-token sets: |A ∩ B| / |A ∪ B|. Range 0–1. */

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CronJob } from "cron";
 import { Logger } from "src/utils/logger.js";
-import { Agent } from "src/agent/agent.js";
+import type { Agent } from "src/agent/agent.js";
 import { MessageBus } from "src/messagebus/queue.js";
 import { MemoryService } from "src/memory/service";
 import { ProviderManager } from "src/provider/manager";
@@ -27,9 +27,14 @@ export class CronService {
   private entries = new Map<string, CronEntry>();
   private readonly logger = new Logger(CronService.name);
   private readonly persistPath: string;
+  private agent: Agent | null = null;
+
+  /** Wires the agent instance used to execute cron prompts. Must be called before any job fires. */
+  setAgent(agent: Agent): void {
+    this.agent = agent;
+  }
 
   constructor(
-    @inject(Agent) private agent: Agent,
     @inject(MessageBus) private bus: MessageBus,
     @inject(MemoryService) private memoryStore: MemoryService,
     @inject("workspace") private workspace: string,
@@ -55,6 +60,15 @@ export class CronService {
     }
   }
 
+  /**
+   * Creates (or replaces) a cron job.
+   * @param params.id       Unique job identifier.
+   * @param params.schedule Cron expression (e.g. `"0 9 * * *"`).
+   * @param params.prompt   Prompt sent to the agent on each tick.
+   * @param params.targets  Channels to deliver the agent's response to.
+   * @param params.recurring `true` (default) to repeat; `false` for a one-shot job.
+   * @param persist         Write updated job list to disk (default `true`).
+   */
   schedule(
     params: { id: string; schedule: string; prompt: string; targets: CronTarget[]; recurring?: boolean },
     persist = true
@@ -74,6 +88,7 @@ export class CronService {
     if (persist) this.save();
   }
 
+  /** Stops and removes the job with the given `id`. Returns `true` if found, `false` if not. */
   cancel(id: string, persist = true): boolean {
     const entry = this.entries.get(id);
     if (!entry) return false;
@@ -84,6 +99,7 @@ export class CronService {
     return true;
   }
 
+  /** Returns all active jobs with their next scheduled run time as an ISO string. */
   listEntries(): Array<Omit<CronEntry, "job"> & { nextRun: string }> {
     return [...this.entries.values()].map(({ job, ...rest }) => ({
       ...rest,
@@ -91,6 +107,7 @@ export class CronService {
     }));
   }
 
+  /** Stops all running jobs and clears the in-memory registry (does not touch disk). */
   stopAll(): void {
     for (const entry of this.entries.values()) {
       entry.job.stop();
@@ -127,6 +144,11 @@ export class CronService {
     // Cancel one-shot jobs before executing so they don't fire again if execution is slow
     if (!entry.recurring) {
       this.cancel(id);
+    }
+
+    if (!this.agent) {
+      this.logger.warn("Cron tick skipped — agent not yet initialized", { id });
+      return;
     }
 
     try {

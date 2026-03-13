@@ -114,6 +114,7 @@ export class ChannelManager {
     }
   }
 
+  /** Registers a plugin-provided channel. Must be called before `startAll()`. */
   registerExtensionChannel(registration: ExtensionChannelRegistration): void {
     this.extensionChannels.push(registration);
   }
@@ -196,6 +197,7 @@ export class ChannelManager {
     }
   }
 
+  /** Starts all enabled channels and begins dispatching outbound messages. */
   async startAll(): Promise<void> {
     if (!Object.keys(this.channels).length) {
       return;
@@ -206,6 +208,7 @@ export class ChannelManager {
     await Promise.allSettled(tasks);
   }
 
+  /** Gracefully stops the outbound dispatcher and all channels. */
   async stopAll(): Promise<void> {
     this.dispatching = false;
     await this.bus.publishOutbound({
@@ -243,10 +246,12 @@ export class ChannelManager {
     }
   }
 
+  /** Returns the channel instance for `name`, or `undefined` if not registered. */
   getChannel(name: string): BaseChannel<Record<string, unknown>> | undefined {
     return this.channels[name];
   }
 
+  /** Returns the current WhatsApp connection state, including QR code data URL when pending auth. */
   getWhatsAppStatus(): { enabled: boolean; authenticated: boolean; qr: string | null } {
     const ch = this.channels["whatsapp"] as WhatsAppChannel | undefined;
     if (!ch) return { enabled: false, authenticated: false, qr: null };
@@ -254,12 +259,14 @@ export class ChannelManager {
     return { enabled: true, authenticated: qr === null, qr };
   }
 
+  /** Returns a status map of all registered channels: `{ enabled, running }` per channel name. */
   getStatus(): Record<string, { enabled: boolean; running: boolean }> {
     return Object.fromEntries(
       Object.entries(this.channels).map(([name, channel]) => [name, { enabled: true, running: channel.isRunning }])
     );
   }
 
+  /** Names of all currently registered (enabled) channels. */
   get enabledChannels(): string[] {
     return Object.keys(this.channels);
   }

@@ -17,7 +17,7 @@ import { DocStore } from "src/docs/store.js";
 import { SubagentManager } from "./subagent.js";
 import { ConfigService } from "src/config/service.js";
 import { CronTool } from "./tools/cron.js";
-import { CronService } from "src/cron/service.js";
+import type { CronService } from "src/cron/service.js";
 import { runLLMLoop, stripOrphanedToolCalls } from "./llm-loop.js";
 import { PersonalityService } from "./personality.js";
 import { VaultService } from "src/vault/credentials.js";

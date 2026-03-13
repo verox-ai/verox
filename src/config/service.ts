@@ -146,6 +146,7 @@ export class ConfigService {
       this.logger.info("Config file not found, using defaults", { path: this.configFile });
       this.writeExampleConfig();
     } else {
+      this.logger.info(`Loading app config at ${this.configFile}`);
       try {
         raw = JSON.parse(readFileSync(this.configFile, "utf-8")) as Record<string, unknown>;
       } catch (err) {

@@ -309,8 +309,8 @@ export class ContextManager {
 
     // ── 2. Contextually relevant (keyword + tag-boosted search) ───────────
     if (currentMessage) {
-      // Keyword search on message content
-      const kwResults = this.memory.contextualSearch(currentMessage, 12, injectedIds);
+      // Keyword search on message content (FTS5-ranked, prefix-aware)
+      const kwResults = this.memory.contextualSearch(currentMessage, 18, injectedIds);
       const relevantMap = new Map<number, typeof kwResults[0]>();
       for (const e of kwResults) relevantMap.set(e.id, e);
 
@@ -322,13 +322,13 @@ export class ContextManager {
       const msgLower = currentMessage.toLowerCase();
       const matchingTags = allTags.filter(tag => msgLower.includes(tag.toLowerCase()));
       if (matchingTags.length) {
-        const tagResults = this.memory.searchSmart(undefined, matchingTags, true, 0, undefined, 12, 0)
+        const tagResults = this.memory.searchSmart(undefined, matchingTags, true, 0, undefined, 15, 0)
           .filter(e => !injectedIds.has(e.id) && e.risk_level < 2 && !relevantMap.has(e.id));
         // Prepend tag-matched results (higher precision signal)
         for (const e of tagResults) relevantMap.set(e.id, e);
       }
 
-      const relevant = [...relevantMap.values()].slice(0, 14);
+      const relevant = [...relevantMap.values()].slice(0, 22);
       const maxRelChars = Math.floor(maxChars * 0.50);
       let relChars = 0;
       const relLines: string[] = [];
@@ -357,31 +357,64 @@ export class ContextManager {
     }
     if (recentLines.length) parts.push(`## Recent (last 7 days)\n${recentLines.join("\n")}`);
 
-    // ── Knowledge map (topic index) ───────────────────────────────────────
-    const km = this.memory.getKnowledgeMap();
-    let knowledgeMap = "";
-    if (km.total > 0 || km.knowledgeDocs.length > 0) {
-      const heading = km.knowledgeDocs.length > 0
-        ? `**Knowledge index** (${km.total} memories · ${km.knowledgeDocs.length} knowledge docs)`
-        : `**Knowledge index** (${km.total} memories)`;
-      const tagLine = km.byTag.length
-        ? km.byTag.map(t => `${t.tag}(${t.count})`).join(" · ")
-        : "";
-      const typeLine = km.byType.length
-        ? km.byType.map(t => `${t.type}(${t.count})`).join(" · ")
-        : "";
-      const recentLine = km.recentTags.length
-        ? `Recent topics: ${km.recentTags.join(", ")}`
-        : "";
-      const docsLine = km.knowledgeDocs.length
-        ? `Knowledge docs: ${km.knowledgeDocs.map(d => `${d.slug} ("${d.title}")`).join(", ")} — use knowledge_read to load content`
-        : "";
-      const lines = [heading];
-      if (tagLine) lines.push(`Memory topics: ${tagLine}`);
-      if (typeLine) lines.push(`Types: ${typeLine}`);
-      if (recentLine) lines.push(recentLine);
-      if (docsLine) lines.push(docsLine);
-      knowledgeMap = lines.join("\n");
+    // ── Level 1: Atlas (high-level overview, always injected) ────────────
+    // Generated nightly by ReflectionService. Falls back to lightweight knowledge
+    // map when the atlas hasn't been generated yet (first run).
+    const atlasDoc = this.memory.knowledgeGet("_memory_atlas");
+    let overviewSection = "";
+    if (atlasDoc) {
+      overviewSection = atlasDoc.content;
+    } else {
+      // Legacy fallback: inline knowledge map until first reflection run.
+      const km = this.memory.getKnowledgeMap();
+      if (km.total > 0 || km.knowledgeDocs.length > 0) {
+        const heading = km.knowledgeDocs.length > 0
+          ? `**Knowledge index** (${km.total} memories · ${km.knowledgeDocs.length} knowledge docs)`
+          : `**Knowledge index** (${km.total} memories)`;
+        const tagLine = km.byTag.length ? km.byTag.map(t => `${t.tag}(${t.count})`).join(" · ") : "";
+        const recentLine = km.recentTags.length ? `Recent topics: ${km.recentTags.join(", ")}` : "";
+        const docsLine = km.knowledgeDocs.length
+          ? `Knowledge docs: ${km.knowledgeDocs.map(d => `${d.slug} ("${d.title}")`).join(", ")} — use knowledge_read to load content`
+          : "";
+        const lines = [heading];
+        if (tagLine) lines.push(`Memory topics: ${tagLine}`);
+        if (recentLine) lines.push(recentLine);
+        if (docsLine) lines.push(docsLine);
+        overviewSection = lines.join("\n");
+      }
+    }
+
+    // ── Level 2: Topic summaries (medium detail, injected when tag matches) ──
+    // Injected automatically when the current message mentions a known topic tag.
+    // Each summary contains up to 15 entries for that tag — the agent doesn't
+    // need to call memory_search for well-covered topics.
+    let topicSection = "";
+    if (currentMessage && atlasDoc) {
+      const allTags = this.memory.listTags().filter(t => !t.startsWith("_"));
+      const msgLower = currentMessage.toLowerCase();
+      const matchingTags = allTags
+        .filter(tag => msgLower.includes(tag.toLowerCase()))
+        .slice(0, 2); // cap at 2 topic summaries per prompt to stay within budget
+
+      const topicParts: string[] = [];
+      let topicChars = 0;
+      const maxTopicChars = Math.floor(maxChars * 0.25);
+
+      for (const tag of matchingTags) {
+        const doc = this.memory.knowledgeGet(`_topic_summary_${tag}`);
+        if (!doc) continue;
+        if (topicChars + doc.content.length > maxTopicChars) break;
+        topicParts.push(doc.content);
+        topicChars += doc.content.length;
+        // Mark entries from this topic summary as already covered so the
+        // contextual-search section doesn't duplicate them.
+        this.memory.searchSmart(undefined, [tag], true, 0, undefined, 20, 0)
+          .forEach(e => injectedIds.add(e.id));
+      }
+
+      if (topicParts.length) {
+        topicSection = `## Topic Summaries\n\n${topicParts.join("\n\n---\n\n")}`;
+      }
     }
 
     // ── Instructions + count hint ─────────────────────────────────────────
@@ -391,15 +424,18 @@ export class ContextManager {
 
     const instructions =
       `${countHint} ` +
-      `Use \`memory_search\` when a topic, person, or project is mentioned that may have prior context — older memories are not shown above. ` +
-      `Use \`memory_write\` immediately when you learn a fact worth keeping: preferences, decisions, names, deadlines, technical choices.`;
+      `Topic summaries are auto-loaded above when the message matches a topic. ` +
+      `Use \`knowledge_read _topic_summary_<tag>\` to load any topic digest. ` +
+      `Use \`memory_search\` for full-text search across all entries. ` +
+      `Use \`memory_write\` when you learn a fact worth keeping.`;
 
-    if (!parts.length && !knowledgeMap) {
+    if (!parts.length && !overviewSection) {
       return `# Memory\n\n_${countHint} No entries to show._ ${instructions}`;
     }
 
     const allParts = [instructions];
-    if (knowledgeMap) allParts.push(knowledgeMap);
+    if (overviewSection) allParts.push(overviewSection);
+    if (topicSection) allParts.push(topicSection);
     allParts.push(...parts);
     return `# Memory\n\n${allParts.join("\n\n")}`;
   }

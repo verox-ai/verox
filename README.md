@@ -9,16 +9,20 @@ A self-hosted AI agent you can talk to via Telegram, Slack, WebChat, or HTTP web
 - **Multi-channel** — Telegram, Slack (DMs + groups), WebChat, HTTP Webhooks, Email, WhatsApp (native, QR scan)
 - **Web UI** — browser-based chat, visual config editor, memory browser, sessions, cron, skills, vault, log viewer, and WhatsApp pairing
 - **Onboarding wizard** — guided first-run setup via the browser: vault key generation, WebUI password, provider and model selection; no manual config editing required
-- **Long-term memory** — searchable, taggable, pinnable facts that persist across conversations and channels; proactive retrieval against incoming messages
+- **Long-term memory** — searchable, taggable, pinnable facts that persist across conversations and channels; proactive retrieval with tag-boosted recall against incoming messages; inline editing in the Web UI
+- **Knowledge documents** — long-form markdown documents stored in SQLite (not files); CRUD + full-text search via FTS5; a compact "knowledge map" (tag cloud, type breakdown, doc titles) is injected into every system prompt so the agent always knows what it knows without loading content
 - **Contact memory** — store who people are across channels (name, aliases, notes); senders are recognised automatically across Telegram, WhatsApp, and WebChat
 - **Calendar awareness** — CalDAV events for today and tomorrow are injected into every system prompt so the agent is always aware of the current schedule
 - **Local document RAG** — index local notes, markdown files, and PDFs; agent searches them semantically
 - **Streaming responses** — token-by-token streaming in the web chat interface
 - **Scheduled tasks** — UNIX cron expressions *and* natural language ("in 2 hours", "next Monday at 9am") with a friendly table UI
-- **Sub-agents** — spawn parallel agents for complex or time-consuming tasks
+- **Sub-agents** — `agent_run` spawns a sub-agent and blocks until it returns (ideal for parallel delegation: multiple `agent_run` calls in one response execute concurrently); `spawn` is the fire-and-forget variant that notifies via the message bus on completion
+- **Parallel tool execution** — tools marked `parallel=true` (e.g. `agent_run`) are batched and resolved with `Promise.all` in the LLM loop; sequential tools flush the batch first
+- **SMTP send** — `smtp_send` tool for composing and sending email; supports plain text and HTML, CC/BCC, reply-to, in-reply-to threading, default CC, and email signature; config-level defaults hot-reload without restart
+- **Slack interactive buttons** — the `message` tool accepts a `buttons` array that renders as Slack Block Kit actions; clicking a button sends the selected value back to the agent as a new message; agent receives an immediate acknowledgement message while it processes the selection
 - **Skills** — extend the agent with Markdown-driven skill modules (shell scripts, Python, etc.); activate/deactivate per skill via UI or agent chat
 - **MCP client** — connect to any Model Context Protocol server (stdio, SSE, or HTTP); auto-detects StreamableHTTP with SSE fallback; vault references in env and headers
-- **Browser automation** — Playwright-based browser control (navigate, click, type, screenshot, evaluate JS, and more)
+- **Browser automation** — Playwright-based browser control (navigate, click, type, screenshot, evaluate JS, and more); screenshots return the image inline to the LLM so it can see the page; persistent browser sessions save/restore cookies and login state across restarts
 - **CalDAV calendar** — read and write calendar events on any CalDAV server (Nextcloud, Radicale, etc.)
 - **Dynamic tool registry** — tool groups are self-contained providers; enable/disable/reload without restart; MCP tools filtered by relevance to save tokens
 - **Plugins** — load custom tools and channels dynamically at runtime
@@ -111,7 +115,8 @@ The Web UI includes:
 | **Chat** | Talk to the agent with streaming responses and live tool-call progress |
 | **Config** | Visual schema-driven config editor — all sections and fields rendered automatically from the schema |
 | **Vault** | Browse and edit encrypted credentials |
-| **Memory** | Search, browse, pin and delete memory entries |
+| **Memory** | Search, browse, pin, edit (inline), and delete memory entries; knowledge map widget with clickable tag cloud |
+| **Knowledge** | Full CRUD for long-form knowledge documents with FTS search and live markdown preview |
 | **Sessions** | View active sessions and conversation history |
 | **Cron** | Schedule, view, and cancel cron jobs |
 | **Skills** | Browse installed skills and their status |
@@ -369,10 +374,21 @@ The `pin` tag makes an entry always appear in the system prompt regardless of ag
 Memory is injected into every session automatically using a three-tier strategy:
 
 1. **Pinned** — entries tagged `pin` always appear first
-2. **Relevant** — entries whose content matches keywords in the incoming message (proactive retrieval — no prompt needed)
+2. **Relevant** — entries whose content matches keywords in the incoming message, plus a tag-boost pass that matches existing tags against message words for higher-precision recall (up to 12 entries)
 3. **Recent** — entries from the last 7 days not already shown
 
-The system prompt also tells the agent how many total memories are stored, encouraging it to use `memory_search` for deeper recall. The agent can also search, write, and delete memories using its built-in tools.
+The system prompt also includes a compact **knowledge map**: total memory count, memory type distribution, top tags with frequencies, recent tags, and titles of all knowledge documents. This tells the agent the shape of what it knows without loading any content — it can call `knowledge_read` on demand for the full text.
+
+The agent can search, write, and delete memories and knowledge documents using its built-in tools.
+
+### Knowledge documents
+
+For longer reference material (how-to guides, project context, structured notes), the agent stores **knowledge documents** in the same SQLite database. Unlike memory entries (short facts), knowledge docs support:
+
+- Full markdown content of any length
+- Slug-based addressing (`knowledge_read slug`)
+- Full-text search across title, content, and tags
+- CRUD via agent tools or the Web UI knowledge page (with live markdown preview)
 
 ### Risk-annotated memory
 
@@ -773,7 +789,7 @@ Enable in config:
 | Tool | Description |
 |------|-------------|
 | `browser_navigate` | Navigate to a URL |
-| `browser_screenshot` | Take a screenshot (saved to workspace) |
+| `browser_screenshot` | Take a screenshot — returns the image **inline to the LLM** so it can see the page |
 | `browser_get_content` | Get the page's text content or HTML |
 | `browser_click` | Click an element by CSS selector |
 | `browser_type` | Type text into an input |
@@ -781,8 +797,13 @@ Enable in config:
 | `browser_wait` | Wait for an element to appear |
 | `browser_evaluate` | Execute JavaScript in the page context |
 | `browser_close` | Close the browser |
+| `browser_session_save` | Save browser state (cookies, localStorage) to a named session file |
+| `browser_session_load` | Restore a previously saved session (survives restarts) |
+| `browser_session_clear` | Delete a saved session file |
 
-All browser tools have `maxRisk = None` (require a clean context to run). `browser_get_content` and `browser_evaluate` produce `outputRisk = High` since they return page-controlled content.
+All browser tools have `maxRisk = None` (require a clean context to run). `browser_get_content`, `browser_evaluate`, and `browser_screenshot` produce `outputRisk = High` since they return page-controlled content.
+
+Browser sessions persist login state across agent restarts. Save a session after logging in to a site; load it next time to resume without re-authenticating.
 
 ---
 
@@ -887,6 +908,55 @@ verox docs list
 
 ---
 
+## RSS monitoring
+
+Verox can subscribe to RSS/Atom feeds and surface new items automatically.
+
+```json
+// config.json — no dedicated section needed; manage via agent tools or the Web UI (/settings/rss)
+```
+
+| Tool | Description |
+|------|-------------|
+| `rss_subscribe` | Subscribe to a feed URL with an optional label and check interval |
+| `rss_unsubscribe` | Remove a subscription by id |
+| `rss_list` | List all active subscriptions and their last-check timestamps |
+| `rss_fetch` | Fetch and return the latest items from a subscription |
+| `rss_check` | Manually trigger a check for subscriptions marked `manual: true` |
+
+Set `manual: true` on a subscription to skip the automatic polling schedule and only fetch on demand via `rss_check`.
+
+---
+
+## Workflows
+
+Workflows let the agent plan and execute multi-step tasks that span multiple turns.
+
+| Tool | Description |
+|------|-------------|
+| `workflow_plan` | Draft a step-by-step plan for a goal |
+| `workflow_save` | Persist a plan to disk so it survives restarts |
+| `workflow_activate` | Start executing a saved workflow |
+| `workflow_cancel` | Cancel an in-progress workflow |
+| `workflow_list` | List all saved and active workflows |
+
+---
+
+## Multi-level memory
+
+In addition to individual memory entries, Verox maintains a layered context injection system:
+
+| Level | What | When injected |
+|-------|------|---------------|
+| **Atlas** | `_memory_atlas` — compact overview of all topics, type breakdown, and recent focus | Every turn |
+| **Topic summaries** | `_topic_summary_<tag>` — up to 15 recent entries for a tag | When the current message mentions that topic |
+| **Relevant entries** | FTS5-ranked entries matching the current message keywords | Every turn (up to 22) |
+| **Recent entries** | Most recently created entries | Every turn |
+
+The atlas and topic summaries are regenerated nightly by the reflection cron job (midnight). Use `knowledge_read _memory_atlas` to inspect the current atlas, or `knowledge_read _topic_summary_<tag>` for a specific topic.
+
+---
+
 ## Built-in tools
 
 ### Core (always available)
@@ -897,8 +967,13 @@ verox docs list
 | `memory_search` | Search memory by text and/or tags |
 | `memory_list_tags` | List all tags in use |
 | `memory_delete` | Delete a memory entry |
+| `knowledge_write` | Create or replace a knowledge document by slug |
+| `knowledge_read` | Load the full content of a knowledge document |
+| `knowledge_search` | Full-text search across knowledge document title, content, and tags |
+| `knowledge_list` | List all knowledge document slugs and titles |
+| `knowledge_delete` | Delete a knowledge document |
 | `cron` | Schedule, cancel, or list cron jobs |
-| `message` | Send a message to a channel with optional file attachments |
+| `message` | Send a message to a channel with optional file attachments and interactive buttons (Slack Block Kit) |
 | `sessions_list` | List active sessions |
 | `sessions_history` | Get conversation history for a session |
 | `sessions_send` | Send a message to another session |
@@ -913,8 +988,9 @@ verox docs list
 | Tool | Description |
 |------|-------------|
 | `exec` | Run a shell command |
-| `spawn` | Create a sub-agent |
-| `subagents` | List, steer, or kill sub-agents |
+| `agent_run` | Delegate a task to a sub-agent and **wait for the result**; multiple calls in one response run in parallel |
+| `spawn` | Spawn a background sub-agent (fire-and-forget); result posted back via the message bus |
+| `subagents` | List, steer, or kill background sub-agents |
 | `read_file` | Read a file |
 | `write_file` | Write a file |
 | `edit_file` | Edit a file by string replacement |
@@ -928,6 +1004,28 @@ verox docs list
 | `web_fetch` | Fetch a web page |
 | `web_crawl` | Crawl a URL via a configured crawl service |
 | `http_request` | Make an HTTP request to an external API |
+
+### SMTP (requires `tools.smtp.enabled`)
+
+| Tool | Description |
+|------|-------------|
+| `smtp_send` | Send an email; supports plain text and HTML, CC/BCC, reply-to override, in-reply-to threading; config-level defaults for reply-to, default CC, and signature are applied automatically |
+
+```jsonc
+"tools": {
+  "smtp": {
+    "enabled": true,
+    "host": "smtp.example.com",
+    "port": 587,
+    "user": "agent@example.com",
+    "password": "",          // Store in vault: config.tools.smtp.password
+    "from": "Agent <agent@example.com>",
+    "replyTo": "you@example.com",   // Replies go to you, not the agent mailbox
+    "defaultCC": "",                // Always CC'd on every outgoing email
+    "signature": ""                 // Appended to every email body
+  }
+}
+```
 
 ### Email (requires `tools.imap`)
 
@@ -962,7 +1060,7 @@ verox docs list
 | Tool | Description |
 |------|-------------|
 | `browser_navigate` | Navigate to a URL |
-| `browser_screenshot` | Take a screenshot (saved to workspace) |
+| `browser_screenshot` | Take a screenshot — image returned inline to the LLM |
 | `browser_get_content` | Get the page's text content or HTML |
 | `browser_click` | Click an element by CSS selector |
 | `browser_type` | Type text into an input field |
@@ -970,6 +1068,9 @@ verox docs list
 | `browser_wait` | Wait for an element to appear |
 | `browser_evaluate` | Execute JavaScript in the page context |
 | `browser_close` | Close the browser |
+| `browser_session_save` | Save cookies and login state to a named session file |
+| `browser_session_load` | Restore a previously saved session |
+| `browser_session_clear` | Delete a saved session file |
 
 ### MCP tools (dynamic — requires `mcp.servers` config)
 

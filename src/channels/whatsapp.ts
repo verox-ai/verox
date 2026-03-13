@@ -12,7 +12,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys";
-import type { WASocket, AuthenticationState } from "@whiskeysockets/baileys";
+import type { WASocket, AuthenticationState, WAMessage } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 
 type WhatsAppConfig = Config["channels"]["whatsapp"];
@@ -153,30 +153,30 @@ export class WhatsAppChannel extends BaseChannel<WhatsAppConfig> {
     }
   }
 
-  private async onIncomingMessage(rawMsg: Record<string, unknown>): Promise<void> {
+  private async onIncomingMessage(rawMsg: WAMessage): Promise<void> {
     this.logger.debug(`Message from ${JSON.stringify(rawMsg)}`)
-    const key = rawMsg.key as Record<string, unknown> | undefined;
+    const key = rawMsg.key;
     if (!key) return;
 
     const fromMe = !!key.fromMe;
-    const remoteJid = key.remoteJid as string | undefined;
+    const remoteJid = key.remoteJid;
     if (!remoteJid) return;
 
     // Extract text content
-    const message = rawMsg.message as Record<string, unknown> | undefined;
+    const message = rawMsg.message;
     if (!message) return;
 
     const text =
-      (message.conversation as string | undefined) ??
-      (message.extendedTextMessage as Record<string, unknown> | undefined)?.text as string | undefined ??
-      (message.imageMessage as Record<string, unknown> | undefined)?.caption as string | undefined;
+      message.conversation ??
+      message.extendedTextMessage?.text ??
+      message.imageMessage?.caption;
 
     if (!text) return;
 
     // Sender: for groups, use participant; for DMs, use remoteJid
     const isGroup = remoteJid.endsWith("@g.us");
     const senderJid = isGroup
-      ? (key.participant as string | undefined) ?? remoteJid
+      ? key.participant ?? remoteJid
       : remoteJid;
 
     // Messages sent from the linked account itself are always allowed —
@@ -197,8 +197,8 @@ export class WhatsAppChannel extends BaseChannel<WhatsAppConfig> {
       content: text,
       metadata: {
         isGroup,
-        messageId: key.id,
-        participant: key.participant,
+        messageId: key.id ?? undefined,
+        participant: key.participant ?? undefined,
       },
     });
   }
