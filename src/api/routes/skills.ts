@@ -10,6 +10,19 @@ const EDITABLE_EXTENSIONS = new Set([
 ]);
 
 /**
+ * Resolves a skill name against `skillsDir` and verifies the result stays
+ * within `skillsDir`. Returns the absolute skill directory path or null if
+ * traversal is detected (e.g. `../../../etc`).
+ */
+function safeSkillDir(skillsDir: string, name: string): string | null {
+  if (!name || name.includes("\0")) return null;
+  const resolved = resolve(join(skillsDir, name));
+  const base = resolve(skillsDir) + sep;
+  if (!resolved.startsWith(base)) return null;
+  return resolved;
+}
+
+/**
  * Resolves `filename` inside `skillDir` and verifies the result stays within
  * `skillDir`. Returns the absolute path or null if traversal is detected.
  * Rejects filenames with path separators, null bytes, or that resolve outside
@@ -70,8 +83,8 @@ export function createSkillsRouter(workspace: string, manifestService: SkillMani
 
   // List all editable files in the skill directory
   router.get("/:name/files", (req, res) => {
-    const skillDir = join(skillsDir, req.params.name);
-    if (!existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
+    const skillDir = safeSkillDir(skillsDir, req.params.name);
+    if (!skillDir || !existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
     try {
       const files = readdirSync(skillDir, { withFileTypes: true })
         .filter(e => e.isFile())
@@ -94,8 +107,8 @@ export function createSkillsRouter(workspace: string, manifestService: SkillMani
 
   // Read a single file
   router.get("/:name/file", (req, res) => {
-    const skillDir = join(skillsDir, req.params.name);
-    if (!existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
+    const skillDir = safeSkillDir(skillsDir, req.params.name);
+    if (!skillDir || !existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
     const filename = String(req.query.filename ?? "");
     const filePath = safeFilePath(skillDir, filename);
     if (!filePath) { res.status(400).json({ error: "Invalid filename" }); return; }
@@ -109,8 +122,8 @@ export function createSkillsRouter(workspace: string, manifestService: SkillMani
 
   // Write a single file
   router.put("/:name/file", (req, res) => {
-    const skillDir = join(skillsDir, req.params.name);
-    if (!existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
+    const skillDir = safeSkillDir(skillsDir, req.params.name);
+    if (!skillDir || !existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
     const { filename, content } = req.body as { filename?: string; content?: string };
     if (content === undefined) { res.status(400).json({ error: "content is required" }); return; }
     const filePath = safeFilePath(skillDir, filename ?? "");
@@ -128,8 +141,8 @@ export function createSkillsRouter(workspace: string, manifestService: SkillMani
 
   // Create a new file
   router.post("/:name/file", (req, res) => {
-    const skillDir = join(skillsDir, req.params.name);
-    if (!existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
+    const skillDir = safeSkillDir(skillsDir, req.params.name);
+    if (!skillDir || !existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
     const { filename } = req.body as { filename?: string };
     const filePath = safeFilePath(skillDir, filename ?? "");
     if (!filePath) { res.status(400).json({ error: "Invalid filename" }); return; }
@@ -144,8 +157,8 @@ export function createSkillsRouter(workspace: string, manifestService: SkillMani
 
   // Delete a single file (cannot delete SKILL.md)
   router.delete("/:name/file", (req, res) => {
-    const skillDir = join(skillsDir, req.params.name);
-    if (!existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
+    const skillDir = safeSkillDir(skillsDir, req.params.name);
+    if (!skillDir || !existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
     const filename = String(req.query.filename ?? "");
     if (filename === "SKILL.md") { res.status(400).json({ error: "Cannot delete SKILL.md" }); return; }
     const filePath = safeFilePath(skillDir, filename);
@@ -171,8 +184,8 @@ export function createSkillsRouter(workspace: string, manifestService: SkillMani
 
   // Delete entire skill
   router.delete("/:name", (req, res) => {
-    const skillDir = join(skillsDir, req.params.name);
-    if (!existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
+    const skillDir = safeSkillDir(skillsDir, req.params.name);
+    if (!skillDir || !existsSync(skillDir)) { res.status(404).json({ error: "Skill not found" }); return; }
     rmSync(skillDir, { recursive: true, force: true });
     manifestService.remove(req.params.name);
     res.json({ ok: true });

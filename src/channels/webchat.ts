@@ -71,7 +71,7 @@ export class WebChatChannel extends BaseChannel<WebChatConfig> {
       const url = new URL(request.url!, `http://${request.headers.host}`);
       if (!url || url.searchParams.get("token") !== this.config.uiToken) {
         this.logger.error("Invalid Authorization");
-        ws.send(JSON.stringify({ type: "message",  role: "assistant", content: "Invalid Authorization", timestamp: new Date().toISOString() } ));
+        ws.close(4001, "Unauthorized");
         return;
       }
       
