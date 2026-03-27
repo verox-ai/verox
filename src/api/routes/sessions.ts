@@ -19,6 +19,16 @@ export function createSessionsRouter(sessionManager: SessionManager): Router {
     res.json(session.messages);
   });
 
+  router.post("/merge", (req, res) => {
+    const { groupKey, memberKeys } = req.body as { groupKey?: string; memberKeys?: string[] };
+    if (!groupKey || !Array.isArray(memberKeys) || memberKeys.length === 0) {
+      res.status(400).json({ error: "groupKey and memberKeys[] required" });
+      return;
+    }
+    const merged = sessionManager.mergeIntoGroup(groupKey, memberKeys);
+    res.json({ ok: true, merged });
+  });
+
   router.delete("/:key", (req, res) => {
     const key = decodeURIComponent(req.params.key);
     const deleted = sessionManager.delete(key);

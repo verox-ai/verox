@@ -27,6 +27,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
           <li><a routerLink="/settings/logs"     routerLinkActive="active">📄 Logs</a></li>
           <li><a routerLink="/settings/prompts"  routerLinkActive="active">✍️ Prompts</a></li>
           <li><a routerLink="/settings/rss"      routerLinkActive="active">📡 RSS</a></li>
+          <li><a routerLink="/settings/goals"    routerLinkActive="active">🎯 Goals</a></li>
           <li class="nav-section">Channels</li>
           <li><a routerLink="/settings/whatsapp" routerLinkActive="active">💬 WhatsApp</a></li>
         </ul>

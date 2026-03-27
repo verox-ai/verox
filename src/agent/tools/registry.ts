@@ -1,5 +1,7 @@
-import { Tool, type ToolResult } from "./toolbase";
+import { Tool, type ToolResult, RetryableError } from "./toolbase";
 import { Logger } from "src/utils/logger.js";
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 import type { ToolProvider, AgentServices } from "./tool-provider.js";
 import type { Config } from "src/types/schemas/schema.js";
 
@@ -111,15 +113,37 @@ export class ToolRegistry {
     if (!tool) {
       return `Error: Tool '${name}' not found`;
     }
-    try {
-      const errors = tool.validateParams(params);
-      if (errors.length) {
-        return `Error: Invalid parameters for tool '${name}': ${errors.join("; ")}`;
-      }
-      return await tool.execute(params, toolCallId);
-    } catch (err) {
-      return `Error executing ${name}: ${String(err)}`;
+    const errors = tool.validateParams(params);
+    if (errors.length) {
+      return `Error: Invalid parameters for tool '${name}': ${errors.join("; ")}`;
     }
+
+    const { maxAttempts, initialDelayMs, backoffMultiplier } = tool.retryConfig;
+    let lastError: unknown;
+    let delayMs = initialDelayMs;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await tool.execute(params, toolCallId);
+      } catch (err) {
+        if (err instanceof RetryableError && attempt < maxAttempts) {
+          const wait = err.delayMs ?? delayMs;
+          this.logger.warn(`Tool '${name}' failed (attempt ${attempt}/${maxAttempts}), retrying in ${wait}ms: ${err.message}`);
+          await sleep(wait);
+          delayMs = Math.round(delayMs * backoffMultiplier);
+          lastError = err;
+          continue;
+        }
+        // Non-retryable error or final attempt — fall through.
+        lastError = err;
+        break;
+      }
+    }
+
+    if (lastError instanceof RetryableError) {
+      return `[TOOL_FAILED after ${maxAttempts} attempts] ${lastError.message}`;
+    }
+    return `Error executing ${name}: ${String(lastError)}`;
   }
 
   /** Names of all registered tools (used to populate the system prompt). */

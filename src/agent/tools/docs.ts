@@ -166,7 +166,9 @@ export class DocsUploadTool extends Tool {
   constructor(
     private store: DocStore,
     private uploadPath: string,
-    private workspace: string
+    private workspace: string,
+    /** When true, indexing is always skipped regardless of the `index` parameter. */
+    private skipIndex = false
   ) { super(); }
 
   get name(): string { return "docs_upload"; }
@@ -174,10 +176,13 @@ export class DocsUploadTool extends Tool {
   get outputRisk(): RiskLevel { return RiskLevel.None; }
 
   get description(): string {
+    const indexNote = this.skipIndex
+      ? "Indexing is disabled for this upload path (uploadSkipIndex=true) — use docs_index separately on the output library."
+      : "Pass index: true to also add the file to the document search index immediately.";
     return [
       `Save a local file to the configured upload folder (${this.uploadPath}).`,
       "Typical use: after downloading an email attachment with imap_attachments, pass the returned path here to persist it.",
-      "Pass index: true to also add the file to the document search index immediately.",
+      indexNote,
       "An optional filename overrides the original name.",
     ].join(" ");
   }
@@ -196,7 +201,7 @@ export class DocsUploadTool extends Tool {
         },
         index: {
           type: "boolean",
-          description: "If true, index the saved file in the document store immediately (default: false)."
+          description: "If true, index the saved file in the document store immediately (default: false). Ignored when uploadSkipIndex is enabled in config."
         }
       },
       required: ["path"]
@@ -206,7 +211,7 @@ export class DocsUploadTool extends Tool {
   async execute(params: Record<string, unknown>): Promise<string> {
     const srcPath  = String(params.path ?? "").trim();
     const filename = params.filename ? String(params.filename).trim() : basename(srcPath);
-    const doIndex  = params.index === true;
+    const doIndex  = !this.skipIndex && params.index === true;
 
     if (!srcPath)   return "Error: path is required";
     if (!existsSync(srcPath)) return `Error: source file not found: ${srcPath}`;

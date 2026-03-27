@@ -39,6 +39,8 @@ import { BrowserProvider } from "./tools/providers/browser.js";
 import { CalendarAwareness } from "src/calendar/awareness.js";
 import { ContactsProvider } from "./tools/providers/contacts.js";
 import { KnowledgeProvider } from "./tools/providers/knowledge.js";
+import { GoalsProvider } from "./tools/providers/goals.js";
+import type { GoalsService } from "src/goals/service.js";
 import { SmtpProvider } from "./tools/providers/smtp.js";
 import { WorkflowService } from "./workflow.js";
 import { WorkflowActivateTool, WorkflowCancelTool, WorkflowListTool, WorkflowPlanTool, WorkflowSaveTool } from "./tools/workflow.js";
@@ -72,6 +74,8 @@ type MessageToolHintsResolver = (params: {
 export class Agent {
     /** Exposed for the REST API — only set when tools.docs.enabled = true. */
     public docStore?: DocStore;
+    /** Exposed for context injection and REST API — always set after init. */
+    public goalsService?: GoalsService;
     private calendarAwareness?: CalendarAwareness;
     private context: ContextManager;
     private sessions: SessionManager;
@@ -187,6 +191,7 @@ export class Agent {
         this.tools.addProvider(new ContactsProvider());
         this.tools.addProvider(new KnowledgeProvider());
         this.tools.addProvider(new SmtpProvider());
+        this.tools.addProvider(new GoalsProvider());
 
         // Workflow tools registered directly (not via provider — they need the
         // WorkflowService instance which is agent-scoped, not config-driven).
@@ -202,6 +207,10 @@ export class Agent {
 
         // Expose docStore for the REST API.
         this.docStore = this.tools.getProvider<DocsProvider>("docs")?.docStore;
+
+        // Expose goalsService for context injection and REST API.
+        this.goalsService = this.tools.getProvider<GoalsProvider>("goals")?.goalsService;
+        if (this.goalsService) this.context.setGoalsService(this.goalsService);
 
         // Start calendar awareness if CalDAV is configured.
         void this.syncCalendarAwareness();
@@ -357,6 +366,19 @@ export class Agent {
             config: this.options.compactConfig,
             force: true
         });
+    }
+
+    /**
+     * Returns the session key for a given `channel:chatId` pair.
+     * If the pair is a member of a configured session group the group name is
+     * returned instead, giving all members a shared conversation history.
+     */
+    private resolveSessionKey(defaultKey: string): string {
+        const groups = this.options.config?.sessionGroups ?? [];
+        for (const group of groups) {
+            if (group.members.includes(defaultKey)) return `group:${group.name}`;
+        }
+        return defaultKey;
     }
 
     /**
@@ -574,7 +596,7 @@ export class Agent {
 
         // Mirror exchange to the destination session when routed cross-channel.
         if (outChannel !== originChannel || outChatId !== originChatId) {
-            const replySession = this.sessions.getOrCreate(`${outChannel}:${outChatId}`);
+            const replySession = this.sessions.getOrCreate(this.resolveSessionKey(`${outChannel}:${outChatId}`));
             this.sessions.addMessage(replySession, "user", `[System: ${msg.senderId}] ${msg.content}`);
             this.sessions.addMessage(replySession, "assistant", content);
             this.sessions.save(replySession);
@@ -608,7 +630,7 @@ export class Agent {
         const sessionless = Boolean(msg.metadata?.sessionless);
         const sessionKey = sessionless
             ? `ephemeral:${Date.now()}-${Math.random().toString(36).slice(2)}`
-            : (sessionKeyOverride ?? `${msg.channel}:${msg.chatId}`);
+            : (sessionKeyOverride ?? this.resolveSessionKey(`${msg.channel}:${msg.chatId}`));
         const session = this.sessions.getOrCreate(sessionKey);
         if (sessionless) {
              this.logger.debug("processMessage: sessionless mode, key=" + sessionKey);
@@ -705,7 +727,7 @@ export class Agent {
         // mirror the exchange to the destination session so the user's follow-up
         // replies arrive with the full conversation context.
         if (!sessionless && (outChannel !== msg.channel || outChatId !== msg.chatId)) {
-            const replySession = this.sessions.getOrCreate(`${outChannel}:${outChatId}`);
+            const replySession = this.sessions.getOrCreate(this.resolveSessionKey(`${outChannel}:${outChatId}`));
             this.sessions.addMessage(replySession, "user", msg.content);
             this.sessions.addMessage(replySession, "assistant", content);
             this.sessions.save(replySession);

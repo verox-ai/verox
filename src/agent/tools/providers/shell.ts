@@ -3,7 +3,7 @@ import type { Tool } from "../toolbase.js";
 import type { AgentServices } from "../tool-provider.js";
 import type { ToolProvider } from "../tool-provider.js";
 import { ExecTool } from "../shell.js";
-import { SpawnTool } from "../spawn.js";
+import { SpawnTool, AgentRunTool, AgentAwaitTool, AgentStatusTool } from "../spawn.js";
 import { SubagentsTool } from "../subagents.js";
 
 /** Shell execution tools: exec, spawn, subagents. Always enabled. */
@@ -33,6 +33,9 @@ export class ShellProvider implements ToolProvider {
       execTool,
       new SpawnTool(services.subagents),
       new SubagentsTool(services.subagents),
+      new AgentRunTool(services.subagents),
+      new AgentAwaitTool(services.subagents),
+      new AgentStatusTool(services.subagents),
     ];
   }
 }

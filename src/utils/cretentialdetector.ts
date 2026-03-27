@@ -25,7 +25,9 @@ export class CredentialDetector {
     slack_token: /xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,}/g,
     stripe_key: /sk_live_[a-zA-Z0-9]{24,}/g,
     google_api: /AIza[0-9A-Za-z_-]{35}/g,
-    azure_key: /[a-zA-Z0-9+/]{43}=/g, // More specific patterns recommended
+    // Azure SAS / storage keys always appear after known context keywords — require that context
+    // to avoid matching arbitrary base64 (e.g. email attachment content, filenames).
+    azure_key: /(?:AccountKey|SharedAccessSignature|sig|sv)=[a-zA-Z0-9+/%]{20,}/g,
     // AWS access key ID (always starts AKIA/ASIA/AROA/AIDA/ANPA/ANVA/APKA)
     aws_access_key: /(?:AKIA|ASIA|AROA|AIDA|ANPA|ANVA|APKA)[0-9A-Z]{16}/g,
     bearer_token: /Bearer\s+[a-zA-Z0-9\-._~+/]+=*/gi,

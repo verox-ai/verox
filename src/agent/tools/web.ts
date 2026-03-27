@@ -1,5 +1,5 @@
 import { APP_USER_AGENT } from "src/constants";
-import { Tool } from "./toolbase";
+import { Tool, RetryableError } from "./toolbase";
 import { Logger } from "src/utils/logger";
 import { RiskLevel } from "../security.js";
 import { ExecTool } from "./shell";
@@ -65,10 +65,16 @@ export class WebSearchTool extends Tool {
     };
     const strCUrl = url.toString();
     this.logger.debug(`WebSearch ${strCUrl}`)
-    const response = await fetch(strCUrl, {
-      headers
-    });
+    let response: Response;
+    try {
+      response = await fetch(strCUrl, { headers });
+    } catch (err) {
+      throw new RetryableError(`Search network error: ${String(err)}`);
+    }
 
+    if (response.status === 429 || response.status >= 500) {
+      throw new RetryableError(`Search request failed (${response.status})`);
+    }
     if (!response.ok) {
       return `Error: Search request failed (${response.status})`;
     }
@@ -109,7 +115,15 @@ export class WebFetchTool extends Tool {
 
   async execute(params: Record<string, unknown>): Promise<string> {
     const url = String(params.url ?? "");
-    const response = await fetch(url, { headers: { "User-Agent": APP_USER_AGENT } });
+    let response: Response;
+    try {
+      response = await fetch(url, { headers: { "User-Agent": APP_USER_AGENT } });
+    } catch (err) {
+      throw new RetryableError(`Fetch network error: ${String(err)}`);
+    }
+    if (response.status === 429 || response.status >= 500) {
+      throw new RetryableError(`Fetch failed (${response.status})`);
+    }
     if (!response.ok) {
       return `Error: Fetch failed (${response.status})`;
     }
@@ -261,9 +275,9 @@ export class HttpRequestTool extends Tool {
     } catch (err) {
       clearTimeout(timer);
       if ((err as Error).name === "AbortError") {
-        return `Error: Request timed out after ${timeout / 1000}s`;
+        throw new RetryableError(`Request timed out after ${timeout / 1000}s`);
       }
-      return `Error: ${String(err)}`;
+      throw new RetryableError(`Network error: ${String(err)}`);
     }
   }
 }

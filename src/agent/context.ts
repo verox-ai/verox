@@ -9,6 +9,7 @@ import { Logger } from "src/utils/logger.js";
 import { getPrompt } from "src/prompts/loader.js";
 import { DEFAULT_PERSONALITY } from "./personality.js";
 import { TOPIC_SHIFT_TOKEN } from "./tokens.js";
+import type { GoalsService } from "src/goals/service.js";
 
 export type Message = Record<string, unknown>;
 
@@ -29,6 +30,7 @@ export class ContextManager {
   private contextConfig: ContextConfig;
   private logger = new Logger(ContextManager.name);
   private calendarSectionFn?: () => string;
+  private goalsService?: GoalsService;
 
   constructor(private workspace: string, contextConfig: ContextConfig | undefined, memory: MemoryService) {
     this.memory = memory;
@@ -65,6 +67,11 @@ export class ContextManager {
 
   clearCalendarAwareness(): void {
     this.calendarSectionFn = undefined;
+  }
+
+  /** Registers the GoalsService so active goals are injected into every system prompt. */
+  setGoalsService(goals: GoalsService): void {
+    this.goalsService = goals;
   }
 
   bootstrapCompleted(): boolean {
@@ -112,6 +119,11 @@ export class ContextManager {
     const calendarSection = this.calendarSectionFn?.();
     if (calendarSection) {
       parts.push(calendarSection);
+    }
+
+    const goalsSection = this.buildGoalsSection();
+    if (goalsSection) {
+      parts.push(goalsSection);
     }
 
     const memorySection = this.buildMemorySection(currentMessage);
@@ -282,6 +294,29 @@ export class ContextManager {
       ? `### message tool hints\n${sanitized.map((h) => `- ${h}`).join("\n")}`
       : "";
     return getPrompt("agent-identity", vars) ?? "";
+  }
+
+  private buildGoalsSection(): string {
+    if (!this.goalsService) return "";
+    const active = this.goalsService.listActive();
+    if (!active.length) return "";
+
+    const lines: string[] = [`# Active Goals (${active.length})`];
+    for (const goal of active) {
+      lines.push(`\n## ${goal.title} [${goal.status}]`);
+      if (goal.description) lines.push(goal.description);
+      if (goal.steps.length) {
+        lines.push("Steps:");
+        for (const step of goal.steps) {
+          const icon = step.status === "completed" ? "✓" : step.status === "failed" ? "✗" : step.status === "in_progress" ? "▶" : "○";
+          const note = step.notes ? ` — ${step.notes}` : "";
+          lines.push(`  ${icon} [${step.id.slice(0, 8)}] ${step.title}${note}`);
+        }
+      }
+      lines.push(`Goal ID: ${goal.id}`);
+    }
+    lines.push("\nUse goal_update to record step progress. Use goal_get <id> for full step IDs.");
+    return lines.join("\n");
   }
 
   private buildMemorySection(currentMessage?: string): string {

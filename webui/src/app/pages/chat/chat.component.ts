@@ -1,8 +1,9 @@
-import { Component, OnInit, OnDestroy, signal, ElementRef, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, signal, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 
-interface ChatMessage { role: string; content: string; timestamp: string; streaming?: boolean; }
+interface FileAttachment { id: string; name: string; mimeType: string; }
+interface ChatMessage { role: string; content: string; timestamp: string; streaming?: boolean; files?: FileAttachment[]; }
 
 @Component({
   selector: 'app-chat',
@@ -17,7 +18,19 @@ interface ChatMessage { role: string; content: string; timestamp: string; stream
       <div class="messages" #scrollEl>
         @for (msg of messages(); track $index) {
           <div class="msg" [class.user]="msg.role === 'user'" [class.assistant]="msg.role === 'assistant'">
-            <div class="bubble" [innerHTML]="formatMsg(msg.content)"></div>
+            @if (msg.content) {
+              <div class="bubble" [innerHTML]="formatMsg(msg.content)"></div>
+            }
+            @if (msg.files?.length) {
+              <div class="attachments">
+                @for (f of msg.files!; track f.id) {
+                  <a class="attachment" [href]="fileUrl(f.id)" target="_blank" [download]="f.name">
+                    <span class="attachment-icon">{{ f.mimeType === 'application/pdf' ? '📄' : '📎' }}</span>
+                    <span class="attachment-name">{{ f.name }}</span>
+                  </a>
+                }
+              </div>
+            }
             <div class="ts">{{ msg.timestamp | date:'HH:mm' }}</div>
           </div>
         }
@@ -85,9 +98,17 @@ interface ChatMessage { role: string; content: string; timestamp: string; stream
       border-top: 1px solid var(--border);
     }
     .msg-input { flex: 1; min-height: 42px; max-height: 140px; resize: none; }
+    .attachments { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .attachment {
+      display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+      background: var(--surface2, #2a2a2a); border: 1px solid var(--border, #444);
+      border-radius: 8px; text-decoration: none; color: var(--text, #eee); font-size: 13px;
+    }
+    .attachment:hover { border-color: var(--accent, #5865f2); }
+    .attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
   `],
 })
-export class ChatComponent implements OnInit, OnDestroy {
+export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('scrollEl') scrollEl!: ElementRef<HTMLDivElement>;
 
   messages = signal<ChatMessage[]>([]);
@@ -97,15 +118,59 @@ export class ChatComponent implements OnInit, OnDestroy {
   connected = signal(false);
 
   private ws!: WebSocket;
+  /** True when the user has manually scrolled away from the bottom. Disables auto-scroll. */
+  private userScrolled = false;
+  /** Set to true before a programmatic scroll so the scroll listener ignores it. */
+  private programmaticScroll = false;
 
   ngOnInit() { this.connect(); }
+  ngAfterViewInit() { this.setupScrollListener(); }
   ngOnDestroy() { this.ws?.close(); }
 
+  private setupScrollListener(): void {
+    const el = this.scrollEl?.nativeElement;
+    if (!el) return;
+    el.addEventListener('scroll', () => {
+      if (this.programmaticScroll) { this.programmaticScroll = false; return; }
+      // User scrolled — if they moved away from the bottom, stop auto-scrolling.
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
+      if (!atBottom) this.userScrolled = true;
+    }, { passive: true });
+  }
+
+  /**
+   * Unconditional scroll to bottom — used for initial history load only.
+   * Resets the userScrolled flag.
+   */
   private scrollToBottom(): void {
+    this.userScrolled = false;
     setTimeout(() => {
-      if (this.scrollEl) {
-        this.scrollEl.nativeElement.scrollTop = this.scrollEl.nativeElement.scrollHeight;
+      const el = this.scrollEl?.nativeElement;
+      if (!el) return;
+      this.programmaticScroll = true;
+      el.scrollTop = el.scrollHeight;
+    }, 0);
+  }
+
+  /**
+   * Smart scroll used during streaming and on new messages.
+   * - Skips if the user manually scrolled away from the bottom.
+   * - Stops scrolling to the bottom once the top of the current streaming
+   *   bubble has gone above the visible area (so the user can read from the start).
+   */
+  private smartScroll(): void {
+    if (this.userScrolled) return;
+    setTimeout(() => {
+      const el = this.scrollEl?.nativeElement;
+      if (!el) return;
+      // Find the last assistant bubble — that's the streaming one.
+      const streamingEl = el.querySelector<HTMLElement>('.msg.assistant:last-child');
+      if (streamingEl && streamingEl.offsetTop < el.scrollTop) {
+        // The top of the answer is already above the viewport — stop auto-scrolling.
+        return;
       }
+      this.programmaticScroll = true;
+      el.scrollTop = el.scrollHeight;
     }, 0);
   }
 
@@ -133,26 +198,23 @@ export class ChatComponent implements OnInit, OnDestroy {
         this.messages.update(msgs => {
           const last = msgs[msgs.length - 1];
           if (last?.streaming) {
-            // Append delta to existing streaming bubble
             return [...msgs.slice(0, -1), { ...last, content: last.content + token }];
           }
-          // First token — create streaming bubble
           return [...msgs, { role: 'assistant', content: token, timestamp: new Date().toISOString(), streaming: true }];
         });
-        this.scrollToBottom();
+        this.smartScroll();
       } else if (data['type'] === 'message') {
         this.activeTool.set('');
         this.typing.set(false);
-        // Replace streaming bubble with final message (has correct timestamp from server)
         this.messages.update(msgs => {
           const withoutStreaming = msgs.filter(m => !m.streaming);
           return [...withoutStreaming, data as unknown as ChatMessage];
         });
-        this.scrollToBottom();
+        this.smartScroll();
       } else if (data['type'] === 'typing') {
         this.activeTool.set('');
         this.typing.set(true);
-        this.scrollToBottom();
+        this.smartScroll();
       }
     };
   }
@@ -163,11 +225,17 @@ export class ChatComponent implements OnInit, OnDestroy {
     this.ws.send(JSON.stringify({ type: 'message', content: text }));
     this.messages.update(m => [...m, { role: 'user', content: text, timestamp: new Date().toISOString() }]);
     this.draft.set('');
+    this.userScrolled = false;
     this.scrollToBottom();
   }
 
   onKey(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); }
+  }
+
+  fileUrl(id: string): string {
+    const token = localStorage.getItem('verox_token') ?? '';
+    return `/files/${id}?token=${encodeURIComponent(token)}`;
   }
 
   formatMsg(text: string): string {

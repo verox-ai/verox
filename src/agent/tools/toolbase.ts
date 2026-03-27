@@ -1,6 +1,32 @@
 import { getToolDescription } from "src/prompts/loader.js";
 import { RiskLevel } from "../security.js";
 
+/**
+ * Thrown by tools when a failure is transient and the operation should be
+ * retried automatically (e.g. network timeout, rate-limit response).
+ * The registry catches this and retries up to `tool.retryConfig.maxAttempts`
+ * times using exponential back-off.
+ *
+ * Use a regular `Error` (or return an error string) for permanent failures
+ * such as invalid parameters or resource-not-found, which should not be retried.
+ */
+export class RetryableError extends Error {
+  constructor(message: string, public readonly delayMs?: number) {
+    super(message);
+    this.name = "RetryableError";
+  }
+}
+
+/** Retry configuration used by ToolRegistry when a RetryableError is thrown. */
+export type RetryConfig = {
+  /** Maximum number of attempts (including the first). Default: 3. */
+  maxAttempts: number;
+  /** Delay before the second attempt, in ms. Doubles each retry. Default: 500. */
+  initialDelayMs: number;
+  /** Multiplier applied to the delay after each failure. Default: 2. */
+  backoffMultiplier: number;
+};
+
 /** A single content part in a rich tool result (text or inline image). */
 export type ToolContentPart =
   | { type: "text"; text: string }
@@ -96,6 +122,15 @@ export abstract class Tool {
 
   /** Returns the dynamic output risk from the last execute(), or undefined if not set. */
   getLastExecuteRisk(): RiskLevel | undefined { return this._lastExecuteRisk; }
+
+  /**
+   * Retry configuration for transient failures.
+   * Only used when the tool throws a `RetryableError`.
+   * Override in subclasses that make network calls to tune back-off behaviour.
+   */
+  get retryConfig(): RetryConfig {
+    return { maxAttempts: 3, initialDelayMs: 500, backoffMultiplier: 2 };
+  }
 
   /**
    * Validates `params` against the tool's JSON schema.

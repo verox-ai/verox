@@ -135,6 +135,29 @@ export interface VaultStatus {
   keys: string[];
 }
 
+export type GoalStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+
+export interface GoalStep {
+  id: string;
+  title: string;
+  status: StepStatus;
+  notes?: string;
+}
+
+export interface Goal {
+  id: string;
+  title: string;
+  description: string;
+  status: GoalStatus;
+  steps: GoalStep[];
+  channel?: string;
+  chatId?: string;
+  createdAt: string;
+  updatedAt: string;
+  result?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private http = inject(HttpClient);
@@ -170,6 +193,9 @@ export class ApiService {
   }
   deleteSession(key: string): Observable<{ ok: boolean }> {
     return this.http.delete<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(key)}`);
+  }
+  mergeSessionsIntoGroup(groupKey: string, memberKeys: string[]): Observable<{ ok: boolean; merged: number }> {
+    return this.http.post<{ ok: boolean; merged: number }>('/api/sessions/merge', { groupKey, memberKeys });
   }
 
   // Memory
@@ -321,6 +347,21 @@ export class ApiService {
   }
   deleteRssSubscription(id: string): Observable<{ ok: boolean }> {
     return this.http.delete<{ ok: boolean }>(`/api/rss/${encodeURIComponent(id)}`);
+  }
+
+  // Goals
+  getGoals(status?: GoalStatus): Observable<Goal[]> {
+    const params = status ? new HttpParams().set('status', status) : undefined;
+    return this.http.get<Goal[]>('/api/goals', { params });
+  }
+  getGoal(id: string): Observable<Goal> {
+    return this.http.get<Goal>(`/api/goals/${id}`);
+  }
+  updateGoal(id: string, patch: { status?: GoalStatus; result?: string }): Observable<Goal> {
+    return this.http.put<Goal>(`/api/goals/${id}`, patch);
+  }
+  deleteGoal(id: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/goals/${id}`);
   }
 
   // Onboarding

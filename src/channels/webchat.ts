@@ -5,8 +5,10 @@ import { OutboundMessage } from "src/messagebus/events.js";
 import { MessageBus } from "src/messagebus/queue.js";
 import { Logger } from "src/utils/logger.js";
 import { SessionManager } from "src/session/manager.js";
-import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, basename, extname } from "node:path";
+import { createReadStream, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { Router } from "express";
 import http from "node:http";
 
 export type WebChatConfig = {
@@ -17,13 +19,30 @@ export type WebChatConfig = {
   uiToken?: string;
 };
 
+type FileAttachment = { id: string; name: string; mimeType: string };
+
 type WsMessage =
-  | { type: "message"; content: string; role: "user" | "assistant"; timestamp: string }
+  | { type: "message"; content: string; role: "user" | "assistant"; timestamp: string; files?: FileAttachment[] }
   | { type: "token_delta"; content: string }
   | { type: "tool_call"; tool: string }
   | { type: "typing" }
   | { type: "system"; content: string }
   | { type: "pong" };
+
+function fileMimeType(filePath: string): string {
+  const ext = extname(filePath).toLowerCase();
+  const map: Record<string, string> = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  };
+  return map[ext] ?? "application/octet-stream";
+}
 
 const CHAT_ID = "default";
 const MAX_HISTORY = 100;
@@ -36,7 +55,8 @@ export class WebChatChannel extends BaseChannel<WebChatConfig> {
 
   private wss: WebSocketServer | null = null;
   private clients: Set<WebSocket> = new Set();
-  private messageHistory: Array<{ role: string; content: string; timestamp: string }> = [];
+  private messageHistory: Array<{ role: string; content: string; timestamp: string; files?: FileAttachment[] }> = [];
+  private fileRegistry = new Map<string, string>(); // id → absolute path
   private logger = new Logger(WebChatChannel.name);
 
   constructor(
@@ -125,9 +145,37 @@ export class WebChatChannel extends BaseChannel<WebChatConfig> {
   }
 
   async send(msg: OutboundMessage): Promise<void> {
-    const entry = { role: "assistant", content: msg.content, timestamp: new Date().toISOString() };
+    const files: FileAttachment[] = (msg.media ?? [])
+      .filter(p => existsSync(p))
+      .map(p => {
+        const id = randomUUID();
+        this.fileRegistry.set(id, p);
+        return { id, name: basename(p), mimeType: fileMimeType(p) };
+      });
+    const entry = { role: "assistant", content: msg.content, timestamp: new Date().toISOString(), files: files.length ? files : undefined };
     this.pushHistory(entry);
     this.broadcast({ type: "message", ...entry });
+  }
+
+  /** Returns an Express router that serves registered files, authenticated by uiToken. */
+  createFileRouter(): Router {
+    const router = Router();
+    router.get("/:id", (req, res) => {
+      const token = (req.query["token"] as string) ?? req.headers.authorization?.replace("Bearer ", "");
+      if (!token || token !== this.config.uiToken) {
+        res.status(401).send("Unauthorized");
+        return;
+      }
+      const filePath = this.fileRegistry.get(req.params["id"]);
+      if (!filePath || !existsSync(filePath)) {
+        res.status(404).send("Not found");
+        return;
+      }
+      res.setHeader("Content-Type", fileMimeType(filePath));
+      res.setHeader("Content-Disposition", `inline; filename="${basename(filePath)}"`);
+      createReadStream(filePath).pipe(res);
+    });
+    return router;
   }
 
   isAllowed(_senderId: string): boolean {
@@ -166,7 +214,7 @@ export class WebChatChannel extends BaseChannel<WebChatConfig> {
     }
   }
 
-  private pushHistory(entry: { role: string; content: string; timestamp: string }): void {
+  private pushHistory(entry: { role: string; content: string; timestamp: string; files?: FileAttachment[] }): void {
     this.messageHistory.push(entry);
     if (this.messageHistory.length > MAX_HISTORY) {
       this.messageHistory.shift();

@@ -206,6 +206,33 @@ export class SessionManager {
   }
 
   /**
+   * Merges the messages from all `memberKeys` sessions into `groupKey`,
+   * sorted by timestamp. Existing messages in the group are preserved.
+   * Returns the number of messages merged from member sessions.
+   */
+  mergeIntoGroup(groupKey: string, memberKeys: string[]): number {
+    const group = this.getOrCreate(groupKey);
+    let merged = 0;
+    for (const key of memberKeys) {
+      if (key === groupKey) continue;
+      const member = this.getIfExists(key);
+      if (!member || member.messages.length === 0) continue;
+      for (const msg of member.messages) {
+        group.messages.push({ ...msg });
+      }
+      merged += member.messages.length;
+    }
+    if (merged > 0) {
+      group.messages.sort((a, b) =>
+        new Date(a.timestamp ?? 0).getTime() - new Date(b.timestamp ?? 0).getTime()
+      );
+      group.updatedAt = new Date();
+      this.save(group);
+    }
+    return merged;
+  }
+
+  /**
    * Returns a lightweight summary of sessions active within the given window.
    * Checks the in-memory cache first, then falls back to disk headers.
    */

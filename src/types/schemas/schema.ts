@@ -281,8 +281,18 @@ export const DocStoreConfigSchema = z.object({
   embeddingApiBase: z.string().optional(),
   /** Override API key for embeddings — use when the embedding provider differs from the chat provider. */
   embeddingApiKey:  z.string().optional(),
-  /** Directory where docs_upload saves files (e.g. a NAS mount). Defaults to workspace/uploads. */
+  /** Directory where docs_upload saves files (e.g. a Paperless consume folder). Defaults to workspace/uploads. */
   uploadPath: z.string().optional(),
+  /**
+   * When true, docs_upload never indexes the saved file — the LLM tool parameter `index: true` is ignored.
+   * Use when uploadPath is a transient consume folder (e.g. Paperless-ngx) where files disappear after processing.
+   */
+  uploadSkipIndex: z.boolean().default(false),
+  /**
+   * Cron expression for automatic background indexing of configured `paths` (e.g. `"0 * * * *"` for hourly).
+   * Null / empty = disabled. Use alongside `uploadSkipIndex` to index from the Paperless output library instead.
+   */
+  indexCronSchedule: z.string().nullable().default(null),
 });
 
 export const CalDavConfigSchema = z.object({
@@ -362,6 +372,11 @@ export const McpConfigSchema = z.object({
   servers: z.record(McpServerSchema).default({}),
 });
 
+export const SessionGroupSchema = z.object({
+  name: z.string().describe("Unique group name used as the shared session key"),
+  members: z.array(z.string()).describe("List of channel:chatId pairs that share this session (e.g. \"webchat:direct\", \"slack:D0AGLF2GB16\")"),
+});
+
 export const ConfigSchema = z.object({
   general:AppConfigSchema.default({}),
   agents: AgentsConfigSchema.default({}),
@@ -370,6 +385,7 @@ export const ConfigSchema = z.object({
   plugins: PluginsConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
   mcp: McpConfigSchema.default({}),
+  sessionGroups: z.array(SessionGroupSchema).default([]).describe("Groups of channel:chatId pairs that share a single conversation session"),
 });
 
 export type ConfigSchemaJson = Record<string, unknown>;

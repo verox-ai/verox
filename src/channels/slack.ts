@@ -144,19 +144,29 @@ export class SlackChannel extends BaseChannel<Config["channels"]["slack"]> {
   }
 
   private async handleInteractive(body: Record<string, unknown>): Promise<void> {
-    if (body.type !== "block_actions") return;
-    const actions = body.actions as Array<Record<string, unknown>> | undefined;
+    // Socket Mode delivers interactive payloads with the actual data as a JSON string in body.payload
+    const parsed: Record<string, unknown> =
+      typeof body.payload === "string"
+        ? (JSON.parse(body.payload) as Record<string, unknown>)
+        : body;
+
+    if (parsed.type !== "block_actions") return;
+    const actions = parsed.actions as Array<Record<string, unknown>> | undefined;
     if (!actions || actions.length === 0) return;
 
     const action = actions[0];
     const value = action.value as string | undefined;
     if (!value) return;
 
-    const user = (body.user as Record<string, unknown> | undefined)?.id as string | undefined;
-    const channel = (body.channel as Record<string, unknown> | undefined)?.id as string | undefined;
+    const user = (parsed.user as Record<string, unknown> | undefined)?.id as string | undefined;
+    const channel = (parsed.channel as Record<string, unknown> | undefined)?.id as string | undefined;
     if (!user || !channel) return;
 
-    if (!this.isAllowedInSlack(user, channel, "im")) {
+    // Slack interactive payloads set channel.name to "directmessage" for DMs, not "im".
+    // Normalise: any channel ID starting with "D" is a DM → treat as "im".
+    const channelType = channel?.startsWith("D") ? "im" : "channel";
+
+    if (!this.isAllowedInSlack(user, channel, channelType)) {
       this.logger.warn("Interactive action from disallowed user", { user, channel });
       return;
     }
@@ -178,7 +188,7 @@ export class SlackChannel extends BaseChannel<Config["channels"]["slack"]> {
       media: [],
       metadata: {
         slack: {
-          channel_type: "im",
+          channel_type: channelType,
           interactive: true
         }
       }

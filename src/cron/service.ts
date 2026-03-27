@@ -28,10 +28,23 @@ export class CronService {
   private readonly logger = new Logger(CronService.name);
   private readonly persistPath: string;
   private agent: Agent | null = null;
+  private docsIndexer: (() => Promise<void>) | null = null;
 
   /** Wires the agent instance used to execute cron prompts. Must be called before any job fires. */
   setAgent(agent: Agent): void {
     this.agent = agent;
+  }
+
+  /**
+   * Registers a docs indexer callback and schedules a `_docs_index` internal cron job.
+   * The callback is called on each tick without involving the LLM.
+   * @param fn       Async function that runs `DocStore.indexAll()`.
+   * @param schedule Cron expression (e.g. `"0 * * * *"` for hourly).
+   */
+  registerDocsIndexer(fn: () => Promise<void>, schedule: string): void {
+    this.docsIndexer = fn;
+    this.schedule({ id: '_docs_index', schedule, prompt: 'NO_REPLY', targets: [], recurring: true }, false);
+    this.logger.info("Docs indexer registered", { schedule });
   }
 
   constructor(
@@ -120,7 +133,7 @@ export class CronService {
     try {
       mkdirSync(join(this.persistPath, ".."), { recursive: true });
       // remove the reflection job cause it will loaded by the service
-      const data: PersistedEntry[] = [...this.entries.values()].map(({ job: _job, ...rest }) => rest).filter(job=>job.id!=='_reflection');
+      const data: PersistedEntry[] = [...this.entries.values()].map(({ job: _job, ...rest }) => rest).filter(job=>job.id!=='_reflection' && job.id!=='_docs_index');
 
       writeFileSync(this.persistPath, JSON.stringify(data, null, 2), "utf-8");
     } catch (err) {
@@ -139,6 +152,11 @@ export class CronService {
 
     if (id === '_reflection') {
       await this.runReflection();
+    }
+
+    if (id === '_docs_index') {
+      if (this.docsIndexer) await this.docsIndexer();
+      return;
     }
 
     // Cancel one-shot jobs before executing so they don't fire again if execution is slow

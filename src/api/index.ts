@@ -21,10 +21,12 @@ import { createWorkflowsRouter } from "./routes/workflows.js";
 import { createKnowledgeRouter } from "./routes/knowledge.js";
 import { createRssRouter } from "./routes/rss.js";
 import { createPromptsRouter } from "./routes/prompts.js";
+import { createGoalsRouter } from "./routes/goals.js";
 import type { McpServerStatus } from "src/mcp/service.js";
 import type { OnboardingService } from "src/onboarding/service.js";
 import type { SkillManifestService } from "src/vault/manifest.js";
 import type { RssService } from "src/rss/service.js";
+import type { GoalsService } from "src/goals/service.js";
 
 export type ApiServices = {
   configService: ConfigService;
@@ -39,6 +41,7 @@ export type ApiServices = {
   onboardingService: OnboardingService;
   manifestService: SkillManifestService;
   rssService: RssService;
+  goalsService?: GoalsService;
 };
 
 export function createApiRouter(services: ApiServices): Router {
@@ -63,6 +66,9 @@ export function createApiRouter(services: ApiServices): Router {
   router.use("/knowledge",  createKnowledgeRouter(services.memoryService));
   router.use("/rss",        createRssRouter(services.rssService));
   router.use("/prompts",    createPromptsRouter(services.workspace));
+  if (services.goalsService) {
+    router.use("/goals", createGoalsRouter(services.goalsService));
+  }
 
   return router;
 }

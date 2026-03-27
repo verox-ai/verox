@@ -23,6 +23,7 @@ export const routes: Routes = [
       { path: 'settings/whatsapp', loadComponent: () => import('./pages/settings/whatsapp/whatsapp.component').then(m => m.WhatsAppComponent) },
       { path: 'settings/rss',     loadComponent: () => import('./pages/settings/rss/rss.component').then(m => m.RssComponent) },
       { path: 'settings/prompts', loadComponent: () => import('./pages/settings/prompts/prompts.component').then(m => m.PromptsComponent) },
+      { path: 'settings/goals',   loadComponent: () => import('./pages/settings/goals/goals.component').then(m => m.GoalsComponent) },
       { path: '**', redirectTo: '' },
     ],
   },

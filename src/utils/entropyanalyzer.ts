@@ -1,3 +1,9 @@
+/** Matches a known file extension immediately after the token (e.g. `.pdf`, `.docx`). */
+const FILENAME_EXT_RE = /\.(pdf|docx?|xlsx?|pptx?|csv|txt|json|xml|zip|tar|gz|png|jpe?g|gif|svg|mp[34]|mov|avi|mkv|eml|msg|odt|ods|odp|md|html?|log|sh|py|js|ts|yaml|yml|toml|ini|conf)(\b|$)/i;
+
+/** Matches tokens that look like filesystem path segments (contain a slash or start with common path chars). */
+const FILEPATH_RE = /^[/~.]|[/\\]/;
+
 /**
  * Detects potential secrets by measuring Shannon entropy of substrings.
  *
@@ -33,7 +39,9 @@ export class EntropyAnalyzer {
   }
 
   /**
-   * Detect high-entropy strings that might be secrets
+   * Detect high-entropy strings that might be secrets.
+   * Skips tokens that look like filenames (known file extensions) or filesystem
+   * paths — these are legitimate high-entropy strings, not credentials.
    */
   detectHighEntropyStrings(
     text: string,
@@ -41,15 +49,21 @@ export class EntropyAnalyzer {
     entropyThreshold: number = 4.5
   ): Array<{ string: string; entropy: number; length: number }> {
     const suspicious: Array<{ string: string; entropy: number; length: number }> = [];
-    
+
     // Find alphanumeric strings with special chars commonly in secrets
     const wordPattern = /\b[A-Za-z0-9+/=_-]{20,}\b/g;
     const matches = text.match(wordPattern) || [];
 
     for (const word of matches) {
       if (word.length >= minLength) {
+        // Skip if the surrounding context suggests a filename or path.
+        // We check the full text around the match for a file extension.
+        const idx = text.indexOf(word);
+        const surrounding = text.slice(idx, idx + word.length + 10);
+        if (FILENAME_EXT_RE.test(surrounding) || FILEPATH_RE.test(word)) continue;
+
         const entropy = this.calculateEntropy(word);
-        
+
         if (entropy >= entropyThreshold) {
           suspicious.push({
             string: word,

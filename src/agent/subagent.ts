@@ -46,6 +46,22 @@ export class SubagentManager {
   >();
   private steerQueue = new Map<string, string[]>();
 
+  /**
+   * Tracked results for agent_run / agent_await — keyed by job ID.
+   * Unlike spawn(), these don't post to the message bus; the result is
+   * returned directly to the LLM via agent_await.
+   */
+  private trackedJobs = new Map<string, {
+    id: string;
+    label: string;
+    promise: Promise<string>;
+    resolve: (result: string) => void;
+    status: "running" | "done" | "failed";
+    result?: string;
+    startedAt: string;
+    doneAt?: string;
+  }>();
+
   constructor(
     private options: {
       providerManager: ProviderManager;
@@ -290,6 +306,73 @@ export class SubagentManager {
       task,
       workspace: this.options.workspace
     }) ?? `You are a subagent. Complete this task: ${task}`;
+  }
+
+  /**
+   * Starts a tracked sub-agent and returns its job ID immediately.
+   * Use `awaitTracked(id)` to collect the result later.
+   * Multiple calls can be made in parallel — the LLM kicks them all off in
+   * one tool batch, then collects results with sequential agent_await calls.
+   */
+  runTracked(params: { task: string; label?: string; maxIterations?: number }): string {
+    const id = randomUUID().slice(0, 8);
+    const label = params.label ?? `${params.task.slice(0, 30)}${params.task.length > 30 ? "…" : ""}`;
+
+    let resolve!: (result: string) => void;
+    const promise = new Promise<string>(res => { resolve = res; });
+
+    const entry = {
+      id, label, promise, resolve,
+      status: "running" as const,
+      startedAt: new Date().toISOString()
+    };
+    this.trackedJobs.set(id, entry);
+
+    this.run(params)
+      .then(result => {
+        const job = this.trackedJobs.get(id);
+        if (job) { job.status = "done"; job.result = result; job.doneAt = new Date().toISOString(); }
+        resolve(result);
+      })
+      .catch(err => {
+        const msg = `Error: ${String(err)}`;
+        const job = this.trackedJobs.get(id);
+        if (job) { job.status = "failed"; job.result = msg; job.doneAt = new Date().toISOString(); }
+        resolve(msg); // resolve (not reject) so agent_await always returns a string
+      });
+
+    this.logger.debug("Tracked agent started", { id, label });
+    return id;
+  }
+
+  /**
+   * Waits for a tracked sub-agent to finish and returns its result.
+   * If the agent is already done the result is returned immediately.
+   * Rejects with a timeout error after `timeoutMs` (default 5 minutes).
+   */
+  async awaitTracked(id: string, timeoutMs = 300_000): Promise<string> {
+    const job = this.trackedJobs.get(id);
+    if (!job) return `Error: No tracked agent with id '${id}'`;
+    if (job.result !== undefined) return job.result;
+
+    const timeout = new Promise<string>((_, rej) =>
+      setTimeout(() => rej(new Error(`Timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+    );
+    try {
+      return await Promise.race([job.promise, timeout]);
+    } catch (err) {
+      return `Error: ${String(err)}`;
+    }
+  }
+
+  /**
+   * Returns a snapshot of all tracked agent jobs (running and finished).
+   * Finished jobs are retained for the lifetime of the SubagentManager instance.
+   */
+  listTracked(): Array<{ id: string; label: string; status: string; startedAt: string; doneAt?: string }> {
+    return Array.from(this.trackedJobs.values()).map(j => ({
+      id: j.id, label: j.label, status: j.status, startedAt: j.startedAt, doneAt: j.doneAt
+    }));
   }
 
   /** Number of subagents whose LLM loop has not yet resolved or rejected. */

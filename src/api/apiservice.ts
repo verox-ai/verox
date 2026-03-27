@@ -73,6 +73,12 @@ export class APIService {
     const app = express();
     app.use(express.json());
 
+    // File serving for webchat attachments (own token auth inside the router)
+    const webChat = this.channelManager.getChannel("webchat") as import("src/channels/webchat.js").WebChatChannel | undefined;
+    if (webChat) {
+      app.use("/files", webChat.createFileRouter());
+    }
+
     // REST API
     app.use("/api", createApiRouter({
       configService: this.configService,
@@ -87,6 +93,7 @@ export class APIService {
       onboardingService,
       manifestService: this.manifestService,
       rssService: this.rssService,
+      goalsService: this.agent.goalsService,
     }));
 
     // Angular SPA static files — resolve relative to this compiled file so the
