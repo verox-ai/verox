@@ -166,6 +166,9 @@ export class ApiService {
   getConfig(): Observable<Record<string, unknown>> {
     return this.http.get<Record<string, unknown>>('/api/config');
   }
+  getConfigMeta(): Observable<{ isDocker: boolean; dataPath: string | null }> {
+    return this.http.get<{ isDocker: boolean; dataPath: string | null }>('/api/config/meta');
+  }
   saveConfig(config: Record<string, unknown>): Observable<{ ok: boolean }> {
     return this.http.put<{ ok: boolean }>('/api/config', config);
   }

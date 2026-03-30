@@ -34,6 +34,19 @@ const PAGE_SIZE = 20;
         </label>
 
         <h3 style="margin:20px 0 10px">Indexed Paths</h3>
+
+        @if (isDocker()) {
+          <div class="docker-hint">
+            <strong>Running inside Docker</strong> — paths below refer to locations <em>inside the container</em>.
+            To expose a folder from your host, add a volume mount in <code>docker-compose.yml</code>:
+            <pre>    volumes:
+      - verox-data:/data
+      - /host/path/to/documents:/docs:ro   # ← add this line</pre>
+            Then use <code>/docs</code> as the path here and click <strong>Save Settings</strong>.
+            Restart the container after changing <code>docker-compose.yml</code>: <code>docker compose up -d</code>
+          </div>
+        }
+
         <div class="paths-list">
           @for (p of docPaths(); track $index; let i = $index) {
             @if (editingIndex() === i) {
@@ -131,10 +144,13 @@ const PAGE_SIZE = 20;
     .path-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
     .path-name { font-weight: 600; min-width: 120px; color: var(--text, #eee); }
     .path-val { flex: 1; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .docker-hint { background: var(--surface2, #1e2a1e); border: 1px solid #3a5a3a; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--text, #eee); margin-bottom: 12px; line-height: 1.6; }
+    .docker-hint pre { background: var(--surface, #111); border-radius: 4px; padding: 6px 10px; margin: 6px 0 4px; font-size: 11px; overflow-x: auto; }
   `]
 })
 export class DocsComponent implements OnInit {
   docs = signal<DocFile[]>([]);
+  isDocker = signal(false);
   currentPage = signal(0);
   removing = signal<string | null>(null);
   indexing = signal(false);
@@ -160,6 +176,7 @@ export class DocsComponent implements OnInit {
 
   ngOnInit() {
     this.api.getDocs().subscribe(d => this.docs.set(d));
+    this.api.getConfigMeta().subscribe(m => this.isDocker.set(m.isDocker));
     this.api.getConfig().subscribe((cfg: Record<string, unknown>) => {
       const docs = (cfg as any)?.tools?.docs ?? {};
       this.skipIndex.set(docs.uploadSkipIndex === true);

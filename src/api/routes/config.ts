@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { existsSync } from "node:fs";
 import type { ConfigService } from "src/config/service.js";
 import { buildConfigSchema } from "src/types/schemas/schema.js";
 
@@ -24,6 +25,13 @@ function maskSensitive(obj: unknown): unknown {
 export function createConfigRouter(configService: ConfigService): Router {
   const router = Router();
 
+  router.get("/meta", (_req, res) => {
+    res.json({
+      isDocker: existsSync("/.dockerenv"),
+      dataPath: process.env["VEROX_HOME"] ?? null,
+    });
+  });
+
   router.get("/schema", (_req, res) => {
     res.json(buildConfigSchema());
   });
@@ -35,8 +43,11 @@ export function createConfigRouter(configService: ConfigService): Router {
 
   router.put("/", (req, res) => {
     try {
-      const body = req.body as Record<string, unknown>;
-      configService.saveAppConfig(body);
+      const body = req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        res.status(400).json({ error: "Request body must be a JSON object" }); return;
+      }
+      configService.saveAppConfig(body as Record<string, unknown>);
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });

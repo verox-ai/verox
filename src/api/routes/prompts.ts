@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, resolve, normalize, sep } from "node:path";
 
 const ALLOWED_EXTENSIONS = new Set([".md", ".json"]);
+const MAX_PROMPT_BYTES = 1_048_576; // 1 MB
 
 function safePromptPath(promptsDir: string, filename: string): string | null {
   if (!filename || filename.includes("\0") || filename.includes("/") || filename.includes("\\")) return null;
@@ -46,6 +47,9 @@ export function createPromptsRouter(workspace: string): Router {
   router.put("/:filename", (req, res) => {
     const { content } = req.body as { content?: string };
     if (content === undefined) { res.status(400).json({ error: "content is required" }); return; }
+    if (typeof content !== "string" || Buffer.byteLength(content) > MAX_PROMPT_BYTES) {
+      res.status(413).json({ error: "Content too large (max 1 MB)" }); return;
+    }
     const filename = req.params.filename;
     const filePath = safePromptPath(promptsDir, filename);
     if (!filePath) { res.status(400).json({ error: "Invalid filename" }); return; }

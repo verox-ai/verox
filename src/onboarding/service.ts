@@ -32,8 +32,12 @@ export class OnboardingService {
 
     // Read providers directly from the current config (which ConfigService reloads
     // on disk change) so we detect a newly saved API key without a process restart.
+    // API keys may be stored in the vault (config.providers.{name}.apiKey) rather
+    // than in config.json, so check both.
     const providers = this.configService.app.providers as Record<string, { apiKey?: string } | undefined>;
-    const hasProvider = Object.values(providers).some(p => !!p?.apiKey);
+    const hasProvider =
+      Object.values(providers).some(p => !!p?.apiKey) ||
+      Object.keys(providers).some(name => !!this.vaultService.get(`config.providers.${name}.apiKey`));
     if (!hasProvider) return "provider";
 
     return "complete";

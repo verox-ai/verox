@@ -17,6 +17,59 @@ function shellQuote(cmd: string): string {
   return `'${cmd.replace(/'/g, "'\\''")}'`;
 }
 
+/**
+ * Throws if the URL targets a private/internal address or uses a non-HTTP scheme.
+ * Guards web_fetch, web_crawl, and http_request against SSRF.
+ */
+function validatePublicUrl(rawUrl: string): void {
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); }
+  catch { throw new Error(`Invalid URL: ${rawUrl}`); }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`Blocked URL scheme: ${parsed.protocol}`);
+  }
+
+  const host = parsed.hostname.toLowerCase().replace(/\[|\]/g, ""); // strip IPv6 brackets
+
+  // Hostname-based blocks
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal")
+  ) {
+    throw new Error(`Blocked internal host: ${host}`);
+  }
+
+  // IPv4 private/reserved ranges
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number);
+    if (
+      a === 10 ||                          // 10.0.0.0/8
+      a === 127 ||                         // 127.0.0.0/8 loopback
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) ||          // 192.168.0.0/16
+      (a === 169 && b === 254) ||          // 169.254.0.0/16 link-local / cloud metadata
+      a === 0 ||                           // 0.0.0.0/8
+      a >= 240                             // 240.0.0.0/4 reserved
+    ) {
+      throw new Error(`Blocked private/reserved IP: ${host}`);
+    }
+  }
+
+  // IPv6 private/loopback
+  if (
+    host === "::1" ||
+    host.startsWith("fc") ||
+    host.startsWith("fd") ||
+    host.startsWith("fe80")
+  ) {
+    throw new Error(`Blocked private IPv6: ${host}`);
+  }
+}
+
 function isBraveResult(data: SearchResponse): data is BraveResult {
   return "web" in data && data.web !== null && typeof data.web === "object";
 }
@@ -115,6 +168,7 @@ export class WebFetchTool extends Tool {
 
   async execute(params: Record<string, unknown>): Promise<string> {
     const url = String(params.url ?? "");
+    try { validatePublicUrl(url); } catch (e) { return `Error: ${(e as Error).message}`; }
     let response: Response;
     try {
       response = await fetch(url, { headers: { "User-Agent": APP_USER_AGENT } });
@@ -160,6 +214,7 @@ export class WebCrawlTool extends Tool {
   async execute(params: Record<string, unknown>): Promise<string> {
     this.logger.debug(`crawling page ${params.url}`);
     const url = String(params.url ?? "");
+    try { validatePublicUrl(url); } catch (e) { return `Error: ${(e as Error).message}`; }
     const execTool = new ExecTool({timeout: 120});
     const command = this.crawlCommand.replace("%s",shellQuote(url));
     const result = await execTool.execute({command});
@@ -221,15 +276,24 @@ export class HttpRequestTool extends Tool {
     const body    = params.body != null ? String(params.body) : undefined;
     const timeout = Math.min(120, Math.max(1, Number(params.timeout ?? 30))) * 1000;
 
+    // Scheme + host validation
+    let parsedForHost: URL;
+    try { parsedForHost = new URL(url); }
+    catch { return "Error: Invalid URL"; }
+    if (!["http:", "https:"].includes(parsedForHost.protocol)) {
+      return `Error: Blocked URL scheme: ${parsedForHost.protocol}`;
+    }
+
     // Host allow-list
     if (this.config.allowedHosts.length > 0) {
-      let hostname: string;
-      try { hostname = new URL(url).hostname; }
-      catch { return "Error: Invalid URL"; }
+      const hostname = parsedForHost.hostname;
       const allowed = this.config.allowedHosts.some(
         h => hostname === h || hostname.endsWith(`.${h}`)
       );
       if (!allowed) return `Error: Host '${hostname}' is not in tools.web.http.allowedHosts`;
+    } else {
+      // No allow-list configured — apply SSRF blocklist as safety net
+      try { validatePublicUrl(url); } catch (e) { return `Error: ${(e as Error).message}`; }
     }
 
     // Redact sensitive headers for debug log

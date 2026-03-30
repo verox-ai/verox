@@ -7,9 +7,12 @@
   "bin": {
     "verox": "./dist/index.js"
   },
+  "engines": {
+    "node": "22"
+  },
   "scripts": {
     "dev": "tsx watch --tsconfig tsconfig.json src/runtime.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js start",
     "dev:build": "tsx src/index.ts",
     "build": "node src/utils/inject-version.cjs && tsup src/index.ts src/runtime.ts --format esm --dts --out-dir dist --shims",
     "build:ui": "cd webui && pnpm install && npx ng build --configuration production",
@@ -32,6 +35,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@slack/socket-mode": "^2.0.5",
     "@slack/web-api": "^7.14.1",
+    "@types/nodemailer": "^7.0.11",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "better-sqlite3": "^12.6.2",
     "chrono-node": "^2.9.0",
@@ -42,11 +46,13 @@
     "jsonwebtoken": "^9.0.3",
     "mailparser": "^3.9.3",
     "node-telegram-bot-api": "^0.67.0",
+    "nodemailer": "^8.0.2",
     "openai": "^6.22.0",
     "pdf-parse": "^2.4.5",
     "playwright": "^1.58.2",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
+    "rss-parser": "^3.13.0",
     "sqlite-vec": "0.1.7-alpha.2",
     "tsdav": "^2.1.8",
     "tsyringe": "^4.10.0",
@@ -54,7 +60,8 @@
     "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.19.0",
     "zod": "^3.23.8",
-    "zod-to-json-schema": "^3.23.5"
+    "zod-to-json-schema": "^3.23.5",
+        "@hapi/boom":"^10.0.1"
   },
   "devDependencies": {
     "@swc/core": "^1.15.11",
@@ -67,7 +74,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin":"^8.56.1",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",

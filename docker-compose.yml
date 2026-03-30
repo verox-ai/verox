@@ -1,0 +1,66 @@
+name: verox  
+services:
+  verox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_HASH: ${GIT_HASH:-unknown}
+    image: verox:latest
+    container_name: verox
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      # All persistent data: config, sessions, memory, vault, logs, workspace
+      - verox-data:/data
+
+    environment:
+      VEROX_HOME: /data
+      CHECK_ROOT: "false"
+      # Set to your server's IP or hostname so the startup log shows the correct URL
+      #VEROX_HOST: "192.168.1.100"
+
+      # ── LLM Provider ────────────────────────────────────────────────────────
+      # Set whichever key(s) you use. These are passed to the app at runtime.
+      # Alternatively, configure them via the Web UI after first launch.
+      #ANTHROPIC_API_KEY: ""
+      #OPENAI_API_KEY: ""
+
+      # ── Vault password ───────────────────────────────────────────────────────
+      # Optional: set a fixed vault password instead of the auto-generated one.
+      # If left unset, a key is generated on first launch and stored in the
+      # data volume at /data/.vault_key. Back that file up — it encrypts all
+      # stored credentials.
+      #VEROX_VAULT_PASSWORD: ""
+
+      # ── Slack (optional) ────────────────────────────────────────────────────
+      #SLACK_APP_TOKEN: ""
+      #SLACK_BOT_TOKEN: ""
+
+    # Drop unnecessary Linux capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+
+    networks:
+      - verox-net
+
+    # Resource limits — tune to your hardware
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+volumes:
+  verox-data:
+    driver: local
+
+networks:
+  verox-net:
+    name: verox

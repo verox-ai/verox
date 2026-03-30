@@ -28,7 +28,8 @@ export function createLogsRouter(): Router {
   const router = Router();
 
   router.get("/", async (req: Request, res: Response) => {
-    const n = Math.min(parseInt(String(req.query.lines ?? "200"), 10), 2000);
+    const parsed = parseInt(String(req.query.lines ?? "200"), 10);
+    const n = (!isNaN(parsed) && parsed > 0) ? Math.min(parsed, 2000) : 200;
     const logFile = getLatestLogFile();
     if (!logFile) {
       res.json({ lines: [] });

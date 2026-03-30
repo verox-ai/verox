@@ -7,7 +7,7 @@ import { Logger } from "src/utils/logger.js";
 import { SessionManager } from "src/session/manager.js";
 import { join, basename, extname } from "node:path";
 import { createReadStream, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
 import http from "node:http";
 
@@ -89,7 +89,7 @@ export class WebChatChannel extends BaseChannel<WebChatConfig> {
 
     this.wss.on("connection", (ws,request) => {
       const url = new URL(request.url!, `http://${request.headers.host}`);
-      if (!url || url.searchParams.get("token") !== this.config.uiToken) {
+      if (!url || !this.tokenValid(url.searchParams.get("token") ?? "")) {
         this.logger.error("Invalid Authorization");
         ws.close(4001, "Unauthorized");
         return;
@@ -157,12 +157,26 @@ export class WebChatChannel extends BaseChannel<WebChatConfig> {
     this.broadcast({ type: "message", ...entry });
   }
 
+  /** Timing-safe token comparison — prevents token enumeration via timing attacks. */
+  private tokenValid(provided: string): boolean {
+    const expected = this.config.uiToken ?? "";
+    if (!provided || !expected) return false;
+    try {
+      const a = Buffer.from(provided);
+      const b = Buffer.from(expected);
+      if (a.length !== b.length) return false;
+      return timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  }
+
   /** Returns an Express router that serves registered files, authenticated by uiToken. */
   createFileRouter(): Router {
     const router = Router();
     router.get("/:id", (req, res) => {
-      const token = (req.query["token"] as string) ?? req.headers.authorization?.replace("Bearer ", "");
-      if (!token || token !== this.config.uiToken) {
+      const token = (req.query["token"] as string) ?? req.headers.authorization?.replace("Bearer ", "") ?? "";
+      if (!this.tokenValid(token)) {
         res.status(401).send("Unauthorized");
         return;
       }

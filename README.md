@@ -69,7 +69,70 @@ chmod +x dist/index.js
 sudo ln -s "$(pwd)/dist/index.js" /usr/local/bin/verox
 ```
 
-### Update
+### Docker
+
+**Prerequisites:** Docker and Docker Compose installed.
+
+```bash
+git clone https://github.com/verox-ai/verox.git
+cd verox
+docker compose up --build -d
+```
+
+All persistent data (config, sessions, memory, vault, logs, workspace) is stored in a named Docker volume (`verox-data`) and survives container recreation.
+
+#### Vault encryption key
+
+Verox encrypts stored credentials (API keys, tokens, etc.) at rest. It needs a stable encryption key across restarts.
+
+On **first launch** the container auto-generates a random key and stores it at `/data/.vault_key` inside the volume — no manual step required. A notice is printed to the container logs:
+
+```
+[verox] First launch: generated vault encryption key.
+[verox] Key stored in: /data/.vault_key (inside your data volume)
+[verox] Back this file up — losing it means losing access to all stored credentials.
+```
+
+**Back up this file.** If you lose it and the volume is recreated, all stored credentials are unrecoverable (config values remain, but encrypted vault entries are gone).
+
+To use a fixed key instead (recommended for production), set it in `docker-compose.yml`:
+
+```yaml
+environment:
+  VEROX_VAULT_PASSWORD: "your-64-char-hex-key"
+```
+
+Generate a suitable key with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+#### Configuration
+
+Open the Web UI at `http://localhost:3000` after the container starts. The onboarding wizard walks you through setting a Web UI password and adding an LLM provider API key — no manual file editing needed.
+
+API keys can also be pre-set via environment variables in `docker-compose.yml`:
+
+```yaml
+environment:
+  ANTHROPIC_API_KEY: "sk-ant-..."
+  # OPENAI_API_KEY: ""
+```
+
+#### Updating
+
+```bash
+docker compose pull   # if using a registry image
+# or rebuild from source:
+docker compose up --build -d
+```
+
+The volume is untouched during updates — all data persists automatically.
+
+---
+
+### Update (bare metal)
 
 ```bash
 cd verox

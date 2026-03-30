@@ -1,5 +1,6 @@
-if (process.getuid?.() === 0) {
+if ((process.getuid?.() === 0) && (process.env.CheckRoot!=='false' && process.env.CHECK_ROOT!=='false')) {
   console.error("Error: Verox must not be run as root. Exiting.");
+  console.warn("If you want to run as root set the CheckRoot Environment variable to false")
   process.exit(1);
 }
 

@@ -129,7 +129,7 @@ export class APIService {
     this.logger.info("WebChat started", { host: config.host, port: config.port });
 
     if (onboardingService.getStep() !== "complete") {
-      const host = config.host === "0.0.0.0" ? "localhost" : config.host;
+      const host = config.host ? config.host : "localhost";
       this.logger.info(`\n\n  ✦ Setup wizard: http://${host}:${config.port}/setup\n`);
     }
 
