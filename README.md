@@ -93,16 +93,25 @@ On **first launch** the container auto-generates a random key and stores it at `
 [verox] Back this file up — losing it means losing access to all stored credentials.
 ```
 
-**Back up this file.** If you lose it and the volume is recreated, all stored credentials are unrecoverable (config values remain, but encrypted vault entries are gone).
+**Back up this file** and then harden your setup:
 
-To use a fixed key instead (recommended for production), set it in `docker-compose.yml`:
+1. Copy the key from `/data/.vault_key` (e.g. `docker exec verox cat /data/.vault_key`)
+2. Set it as a fixed env var in `docker-compose.yml`:
+   ```yaml
+   environment:
+     VEROX_VAULT_PASSWORD: "your-key-here"
+   ```
+3. Delete the file from the volume so the agent cannot read it:
+   ```bash
+   docker exec verox rm /data/.vault_key
+   ```
+4. Restart: `docker compose up -d`
 
-```yaml
-environment:
-  VEROX_VAULT_PASSWORD: "your-64-char-hex-key"
-```
+From this point the key lives only in `docker-compose.yml` (or a secrets manager) and is no longer readable inside the container.
 
-Generate a suitable key with:
+If you lose the key and the volume is recreated, all stored credentials are unrecoverable (config values remain, but encrypted vault entries are gone).
+
+To generate a fresh key manually:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
