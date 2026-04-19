@@ -88,12 +88,15 @@ export class APIService {
       cronService: this.cronService,
       workspace: this.workspace,
       getDocStore: () => this.agent.docStore,
+      getEmailStore: () => this.agent.emailStore,
       getMcpStatus: () => this.mcpService.getStatus(),
       getWhatsAppStatus: () => this.channelManager.getWhatsAppStatus(),
       onboardingService,
       manifestService: this.manifestService,
       rssService: this.rssService,
       goalsService: this.agent.goalsService,
+      usageService: this.agent.usageService,
+      getAgent: () => this.agent,
     }));
 
     // Angular SPA static files — resolve relative to this compiled file so the

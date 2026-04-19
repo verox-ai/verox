@@ -70,6 +70,22 @@ export interface KnowledgeDocMeta {
   updated_at: string;
 }
 
+export interface UsageDayRow {
+  date: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+}
+
+export interface UsageStats {
+  period: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  by_day: UsageDayRow[];
+  costs: Record<string, { input: number; output: number }>;
+}
+
 export interface MemoryMap {
   total: number;
   byTag: { tag: string; count: number }[];
@@ -86,6 +102,29 @@ export interface SavedWorkflow {
   steps: string[];
   tools_needed: string[];
   created_at: string;
+}
+
+export interface EmailRecord {
+  id: number;
+  message_id: string;
+  uid: number;
+  mailbox: string;
+  from_addr: string;
+  to_addr: string;
+  subject: string;
+  received_at: string;
+  body: string;
+  raw_body: string;
+  indexed: number;
+}
+
+export interface EmailSearchResult {
+  id: number;
+  from_addr: string;
+  to_addr: string;
+  subject: string;
+  received_at: string;
+  snippet: string;
 }
 
 export interface RssSubscription {
@@ -311,6 +350,9 @@ export class ApiService {
   deleteWorkflow(name: string): Observable<{ ok: boolean }> {
     return this.http.delete<{ ok: boolean }>(`/api/workflows/${encodeURIComponent(name)}`);
   }
+  updateWorkflow(name: string, patch: Partial<SavedWorkflow>): Observable<SavedWorkflow> {
+    return this.http.put<SavedWorkflow>(`/api/workflows/${encodeURIComponent(name)}`, patch);
+  }
 
   // Logs
   getLogs(lines = 200): Observable<{ lines: string[] }> {
@@ -365,6 +407,34 @@ export class ApiService {
   }
   deleteGoal(id: string): Observable<{ ok: boolean }> {
     return this.http.delete<{ ok: boolean }>(`/api/goals/${id}`);
+  }
+
+  // Email archive
+  getEmails(opts: { q?: string; mailbox?: string; page?: number } = {}): Observable<{ emails: (EmailRecord | EmailSearchResult)[]; page: number; hasMore: boolean; total: number }> {
+    let params = new HttpParams();
+    if (opts.q) params = params.set('q', opts.q);
+    if (opts.mailbox) params = params.set('mailbox', opts.mailbox);
+    if (opts.page !== undefined) params = params.set('page', opts.page);
+    return this.http.get<{ emails: (EmailRecord | EmailSearchResult)[]; page: number; hasMore: boolean; total: number }>('/api/email', { params });
+  }
+  getEmail(id: number): Observable<EmailRecord> {
+    return this.http.get<EmailRecord>(`/api/email/${id}`);
+  }
+  deleteEmail(id: number): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(`/api/email/${id}`);
+  }
+  getEmailMailboxes(): Observable<string[]> {
+    return this.http.get<string[]>('/api/email/mailboxes');
+  }
+
+  // Usage
+  getUsageStats(period: 'today' | 'week' | 'month' | 'all'): Observable<UsageStats> {
+    return this.http.get<UsageStats>(`/api/usage?period=${period}`);
+  }
+
+  // Debug
+  getDebugPrompt(): Observable<{ systemPrompt: string; estimatedTokens: number; toolDefsTokens: number; totalEstimatedTokens: number; toolCount: number; toolNames: string[]; sections: { title: string; chars: number }[] }> {
+    return this.http.get<{ systemPrompt: string; estimatedTokens: number; toolDefsTokens: number; totalEstimatedTokens: number; toolCount: number; toolNames: string[]; sections: { title: string; chars: number }[] }>('/api/debug/prompt');
   }
 
   // Onboarding

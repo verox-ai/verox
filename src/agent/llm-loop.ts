@@ -97,6 +97,7 @@ export type LLMLoopParams = {
    * Core tools are always included regardless of this value.
    */
   toolContext?: string;
+  maxTokens?: number;
   /**
    * Tool names approved by the active workflow for this session.
    * Tools in this set bypass the maxRisk security check — the user has
@@ -140,9 +141,11 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
     isSkillSigned,
     reasoningEffortLevels,
     toolContext,
-    workflowApprovedTools
+    workflowApprovedTools,
+    maxTokens,
   } = params;
 
+  const verboseLlm = process.env.LLM_VERBOSE === "1" || process.env.LLM_VERBOSE === "true";
   let cleanedOnce = false;
 
   for (let i = 0; i < maxIterations; i++) {
@@ -171,7 +174,29 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
     let response;
     try {
       const provider = providerManager.get();
-      const chatParams = { messages, tools: tools.getDefinitions(toolContext), reasoningEffort: currentEffort };
+      const toolDefs = tools.getDefinitions(toolContext);
+      const chatParams = { messages, tools: toolDefs, reasoningEffort: currentEffort, maxTokens };
+      if (verboseLlm) {
+        logger.debug("[LLM_VERBOSE] request", {
+          iteration: i,
+          model: provider.getDefaultModel(),
+          toolCount: toolDefs.length,
+          toolNames: toolDefs.map(t => (t.function as Record<string, unknown>)?.name),
+          messageCount: messages.length,
+          messages: messages.map(m => ({
+            role: m.role,
+            content: typeof m.content === "string" ? m.content.slice(0, 500) : "(non-string)",
+            tool_call_id: m.tool_call_id,
+            tool_calls: Array.isArray(m.tool_calls)
+              ? (m.tool_calls as Array<Record<string, unknown>>).map(tc => ({
+                  id: tc.id,
+                  name: (tc.function as Record<string, unknown>)?.name,
+                  args: JSON.stringify((tc.function as Record<string, unknown>)?.arguments ?? "").slice(0, 200),
+                }))
+              : undefined,
+          })),
+        });
+      }
       response = onTokenDelta
         ? await provider.chatStream(chatParams, onTokenDelta)
         : await provider.chat(chatParams);
@@ -185,6 +210,43 @@ export async function runLLMLoop(params: LLMLoopParams): Promise<string | null> 
         continue;
       }
       throw err;
+    }
+
+    logger.debug("LLM response", {
+      iteration: i,
+      contentLength: response.content?.length ?? 0,
+      contentPreview: response.content ? response.content.slice(0, 200) : "(empty)",
+      toolCalls: response.toolCalls.length,
+      toolNames: response.toolCalls.map(t => t.name),
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+    });
+    if (verboseLlm) {
+      logger.debug("[LLM_VERBOSE] response", {
+        iteration: i,
+        content: response.content ?? "(empty)",
+        toolCalls: response.toolCalls.map(t => ({
+          id: t.id,
+          name: t.name,
+          arguments: JSON.stringify(t.arguments),
+        })),
+      });
+    }
+
+    const effectiveMaxTokens = maxTokens ?? 8192;
+    if (!response.content && !response.toolCalls.length && response.usage?.completion_tokens) {
+      if (response.usage.completion_tokens >= effectiveMaxTokens * 0.98) {
+        logger.warn("LLM returned empty content — likely hit max_tokens limit", {
+          completionTokens: response.usage.completion_tokens,
+          maxTokens: effectiveMaxTokens,
+          promptTokens: response.usage.prompt_tokens,
+        });
+      } else {
+        logger.warn("LLM returned empty content with no tool calls", {
+          completionTokens: response.usage.completion_tokens,
+          promptTokens: response.usage.prompt_tokens,
+        });
+      }
     }
 
     if (onUsage && response.usage) {

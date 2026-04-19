@@ -34,7 +34,7 @@ export class BrowserProvider implements ToolProvider {
       timeout: cfg.timeout,
       allowedDomains: cfg.allowedDomains,
     });
-    return [
+    return ([
       new BrowserNavigateTool(this.manager),
       new BrowserScreenshotTool(this.manager, services.workspace),
       new BrowserGetContentTool(this.manager),
@@ -47,7 +47,7 @@ export class BrowserProvider implements ToolProvider {
       new BrowserSessionSaveTool(this.manager, services.workspace),
       new BrowserSessionLoadTool(this.manager, services.workspace),
       new BrowserSessionClearTool(this.manager, services.workspace),
-    ];
+    ] as Tool[]).map(t => t.markContextual());
   }
 
   onConfigChange(config: Config): void {

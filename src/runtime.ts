@@ -74,10 +74,12 @@ if (isOnboarding) {
   agent.registerRssService(rssService);
   rssService.load();
 
-  const indexSchedule = container.resolve(ConfigService).app.tools?.docs?.indexCronSchedule;
+  const docsConfig = container.resolve(ConfigService).app.tools?.docs;
+  const indexSchedule = docsConfig?.indexCronSchedule;
   if (agent.docStore && indexSchedule) {
     const store = agent.docStore;
-    cronService.registerDocsIndexer(() => store.indexAll().then(() => void 0), indexSchedule);
+    const emailStore = docsConfig?.indexEmails ? agent.emailStore : undefined;
+    cronService.registerDocsIndexer(() => store.indexAll(false, emailStore).then(() => void 0), indexSchedule);
   }
 
   const mcpService = container.resolve(McpService);

@@ -38,7 +38,7 @@ export class CalDavProvider implements ToolProvider {
       new CalendarCreateEventTool(this.client),
       new CalendarUpdateEventTool(this.client),
       new CalendarDeleteEventTool(this.client),
-    ];
+    ].map(t => t.markContextual());
   }
 
   onConfigChange(config: Config): void {

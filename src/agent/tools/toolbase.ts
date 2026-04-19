@@ -101,7 +101,10 @@ export abstract class Tool {
    * overlap with the tool's name + description. Core tools return false (always
    * included); MCP tools return true by default.
    */
-  get contextual(): boolean { return false; }
+  private _contextual = false;
+  get contextual(): boolean { return this._contextual; }
+  /** Call in provider createTools() to mark a whole group of tools as contextually filtered. */
+  markContextual(): this { this._contextual = true; return this; }
 
   /**
    * The maximum context risk level this tool is allowed to run in.

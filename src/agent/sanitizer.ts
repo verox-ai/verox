@@ -70,7 +70,7 @@ export class OutputSanitizer {
         severity: 'high',
       });
     }
-
+/*
     // 2. Entropy-based detection
     const entropyFindings = this.entropyAnalyzer.detectHighEntropyStrings(text);
     for (const finding of entropyFindings) {
@@ -81,7 +81,7 @@ export class OutputSanitizer {
         severity: 'medium',
       });
     }
-
+*/
     // 3. Keyword-based detection
     const keywordFindings = this.detectSensitiveKeywords(text);
     findings.push(...keywordFindings);
@@ -89,7 +89,7 @@ export class OutputSanitizer {
     // Redact all findings
     if (findings.length > 0) {
       sanitizedText = this.credentialDetector.redact(text);
-
+/*
       // Also redact high-entropy strings
       for (const finding of entropyFindings) {
         sanitizedText = sanitizedText.replace(
@@ -97,7 +97,7 @@ export class OutputSanitizer {
           '[REDACTED_HIGH_ENTROPY]'
         );
       }
-
+*/
       // Also redact keyword finding values
       for (const finding of keywordFindings) {
         sanitizedText = sanitizedText.replace(finding.value, '[REDACTED_KEYWORD]');

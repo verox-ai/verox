@@ -243,14 +243,16 @@ Important: Respond strictly as JSON. Do NOT use Markdown code blocks or any othe
         this.logger.warn(`LLM returned invalid JSON for personality delta ${llmResponse.content}`);
       }
 
-      // --- Ensure all traits exist ---
+      // --- Ensure all traits exist and bound deltas to valid range ---
+      // NOTE: do NOT clamp here — deltas are signed values (-0.05..0.05).
+      // Clamping to 0-1 would destroy all negative deltas, causing traits to only ever increase.
       const sanitizeDelta = (delta: Partial<PersonalityState>): PersonalityState => ({
-        warmth: clamp(delta.warmth ?? 0),
-        humor: clamp(delta.humor ?? 0),
-        verbosity: clamp(delta.verbosity ?? 0),
-        curiosity: clamp(delta.curiosity ?? 0),
-        assertiveness: clamp(delta.assertiveness ?? 0),
-        snarkiness: clamp(delta.snarkiness ?? 0),
+        warmth:       Math.max(-0.1, Math.min(0.1, delta.warmth       ?? 0)),
+        humor:        Math.max(-0.1, Math.min(0.1, delta.humor        ?? 0)),
+        verbosity:    Math.max(-0.1, Math.min(0.1, delta.verbosity    ?? 0)),
+        curiosity:    Math.max(-0.1, Math.min(0.1, delta.curiosity    ?? 0)),
+        assertiveness:Math.max(-0.1, Math.min(0.1, delta.assertiveness?? 0)),
+        snarkiness:   Math.max(-0.1, Math.min(0.1, delta.snarkiness   ?? 0)),
       });
 
       suggestedDelta = sanitizeDelta(suggestedDelta);

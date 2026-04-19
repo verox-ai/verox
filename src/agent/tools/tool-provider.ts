@@ -10,6 +10,8 @@ import type { SkillManifestService } from "src/vault/manifest.js";
 import type { SkillsLoader } from "src/agent/skills.js";
 import type { SubagentManager } from "src/agent/subagent.js";
 import type { UsageService } from "src/usage/service.js";
+import type { EmailStore } from "src/email/store.js";
+import type { DocStore } from "src/docs/store.js";
 
 /** Services made available to every ToolProvider at load time. */
 export type AgentServices = {
@@ -25,6 +27,8 @@ export type AgentServices = {
   subagents: SubagentManager;
   usageService: UsageService;
   isSecManagerEnabled: boolean;
+  emailStore?: EmailStore;
+  docStore?: DocStore;
 };
 
 /**

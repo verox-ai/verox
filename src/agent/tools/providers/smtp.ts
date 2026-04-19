@@ -29,6 +29,6 @@ export class SmtpProvider implements ToolProvider {
           defaultCC: cfg.defaultCC,
         };
       }),
-    ];
+    ].map(t => t.markContextual());
   }
 }

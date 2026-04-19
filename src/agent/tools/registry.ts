@@ -52,7 +52,7 @@ export class ToolRegistry {
    * Contextual tools (e.g. MCP) are included when:
    *   - They were explicitly activated this turn via `activate()`, OR
    *   - They share a keyword with the context string (keyword pre-filter), OR
-   *   - No context string was provided (include all).
+   *   - No context string was provided (excluded — caller must pass context).
    *
    * Non-contextual tools are always included.
    */
@@ -62,8 +62,7 @@ export class ToolRegistry {
       .filter((tool) =>
         !tool.contextual ||
         this.activatedTools.has(tool.name) ||
-        contextTokens.length === 0 ||
-        isRelevant(tool, contextTokens)
+        (contextTokens.length > 0 && isRelevant(tool, contextTokens))
       )
       .map((tool) => tool.toSchema());
   }

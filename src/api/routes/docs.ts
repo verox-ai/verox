@@ -1,7 +1,13 @@
 import { Router } from "express";
 import type { DocStore } from "src/docs/store.js";
+import type { EmailStore } from "src/email/store.js";
+import type { ConfigService } from "src/config/service.js";
 
-export function createDocsRouter(getDocStore: () => DocStore | undefined): Router {
+export function createDocsRouter(
+  getDocStore: () => DocStore | undefined,
+  getEmailStore?: () => EmailStore | undefined,
+  configService?: ConfigService,
+): Router {
   const router = Router();
 
   router.get("/", (_req, res) => {
@@ -14,7 +20,9 @@ export function createDocsRouter(getDocStore: () => DocStore | undefined): Route
     const docStore = getDocStore();
     if (!docStore) { res.status(503).json({ error: "docs not enabled" }); return; }
     try {
-      const result = await docStore.indexAll(false);
+      const indexEmails = configService?.app.tools?.docs?.indexEmails;
+      const emailStore = indexEmails && getEmailStore ? getEmailStore() : undefined;
+      const result = await docStore.indexAll(false, emailStore);
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: String(err) });

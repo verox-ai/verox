@@ -32,6 +32,10 @@ const PAGE_SIZE = 20;
           <span style="min-width:160px;flex-shrink:0"><strong>Auto-index schedule</strong></span>
           <input type="text" class="input-sm" [ngModel]="indexCronSchedule()" (ngModelChange)="indexCronSchedule.set($event)" placeholder="e.g. 0 * * * * (hourly)" />
         </label>
+        <label class="setting-row" style="margin-top:12px">
+          <input type="checkbox" [ngModel]="indexEmails()" (ngModelChange)="indexEmails.set($event)" />
+          <span><strong>Index emails for semantic search</strong> — emails saved via <code>email_save</code> are embedded into the vector index on each index run, enabling meaning-based search in <code>email_search</code>. Requires an auto-index schedule above.</span>
+        </label>
 
         <h3 style="margin:20px 0 10px">Indexed Paths</h3>
 
@@ -159,6 +163,7 @@ export class DocsComponent implements OnInit {
   settingsSaved = signal(false);
   skipIndex = signal(false);
   indexCronSchedule = signal('');
+  indexEmails = signal(false);
   docPaths = signal<DocPath[]>([]);
   editingIndex = signal(-1);
   editName = '';
@@ -181,6 +186,7 @@ export class DocsComponent implements OnInit {
       const docs = (cfg as any)?.tools?.docs ?? {};
       this.skipIndex.set(docs.uploadSkipIndex === true);
       this.indexCronSchedule.set(docs.indexCronSchedule ?? '');
+      this.indexEmails.set(docs.indexEmails === true);
       this.docPaths.set(Array.isArray(docs.paths) ? docs.paths : []);
     });
   }
@@ -188,7 +194,7 @@ export class DocsComponent implements OnInit {
   saveSettings() {
     this.savingSettings.set(true);
     this.settingsSaved.set(false);
-    const partial = { tools: { docs: { uploadSkipIndex: this.skipIndex(), indexCronSchedule: this.indexCronSchedule() || null, paths: this.docPaths() } } };
+    const partial = { tools: { docs: { uploadSkipIndex: this.skipIndex(), indexCronSchedule: this.indexCronSchedule() || null, paths: this.docPaths(), indexEmails: this.indexEmails() } } };
     this.api.saveConfig(partial as Record<string, unknown>).subscribe({
       next: () => { this.savingSettings.set(false); this.settingsSaved.set(true); setTimeout(() => this.settingsSaved.set(false), 2000); },
       error: () => this.savingSettings.set(false)

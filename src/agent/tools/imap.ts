@@ -118,6 +118,7 @@ export class ImapMailTool extends Tool {
             const messages = await client.fetchAll(newUids, { envelope: true }, { uid: true });
             const result = messages.map(msg => ({
                 uid: msg.uid,
+                message_id: msg.envelope?.messageId,
                 subject: msg.envelope?.subject,
                 from: msg.envelope?.from?.[0]?.address,
                 date: msg.envelope?.date
@@ -150,6 +151,7 @@ export class ImapMailTool extends Tool {
             const messages = await client.fetchAll(unseenUids, { envelope: true }, { uid: true });
             const result = messages.map(msg => ({
                 uid: msg.uid,
+                message_id: msg.envelope?.messageId,
                 subject: msg.envelope?.subject,
                 from: msg.envelope?.from?.[0]?.address,
                 date: msg.envelope?.date
@@ -190,6 +192,7 @@ export class ImapMailTool extends Tool {
                         results.push({
                             mailbox,
                             uid: msg.uid,
+                            message_id: msg.envelope?.messageId,
                             subject: msg.envelope?.subject,
                             from: msg.envelope?.from?.[0]?.address,
                             date: msg.envelope?.date
@@ -262,8 +265,16 @@ export class ImapMailReadTool extends Tool {
                 for await (const chunk of content) chunks.push(chunk as Buffer);
                 const parsed: ParsedMail = await simpleParser(Buffer.concat(chunks).toString());
 
+                const fromAddr = parsed.from?.value?.[0]?.address ?? parsed.from?.text;
+                const toAddr = parsed.to?.value?.map((a: { address?: string }) => a.address).filter(Boolean).join(", ")
+                  ?? parsed.to?.text;
+
                 return JSON.stringify({
-                    from: parsed.from,
+                    uid: messageUid,
+                    mailbox,
+                    message_id: parsed.messageId,
+                    from: fromAddr,
+                    to: toAddr,
                     subject: parsed.subject,
                     date: parsed.date,
                     content: parsed.text ?? parsed.html

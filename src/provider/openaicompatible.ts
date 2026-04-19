@@ -153,7 +153,7 @@ export class OpenAICompatibleProvider extends AIProvider {
         const model = params.model ?? this.defaultModel;
         const caps = detectModelCapabilities(model);
         const temperature = caps.fixedTemperature ?? (params.temperature ?? 0);
-        const maxTokens = params.maxTokens ?? 4096;
+        const maxTokens = params.maxTokens ?? 8192;
         const reasoningEffort = (params.reasoningEffort ?? this.reasoningEffort) || null;
 
         const sanitized = sanitizeMessages(params.messages);
@@ -241,7 +241,7 @@ export class OpenAICompatibleProvider extends AIProvider {
         const model = params.model ?? this.defaultModel;
         const caps = detectModelCapabilities(model);
         const temperature = caps.fixedTemperature ?? (params.temperature ?? 0);
-        const maxTokens = params.maxTokens ?? 4096;
+        const maxTokens = params.maxTokens ?? 8192;
         // Per-call override takes precedence over instance default.
         const reasoningEffort = (params.reasoningEffort ?? this.reasoningEffort) || null;
 
@@ -318,7 +318,7 @@ export class OpenAICompatibleProvider extends AIProvider {
         const model = params.model ?? this.defaultModel;
         const caps = detectModelCapabilities(model);
         const temperature = caps.fixedTemperature ?? (params.temperature ?? 0);
-        const maxTokens = params.maxTokens ?? 4096;
+        const maxTokens = params.maxTokens ?? 8192;
         const reasoningEffort = (params.reasoningEffort ?? this.reasoningEffort) || null;
         const input = this.toResponsesInput(params.messages);
         const body: Record<string, unknown> = {

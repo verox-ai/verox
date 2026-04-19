@@ -14,6 +14,14 @@ export type CompactionConfig = {
   enabled?: boolean;
   thresholdTokens?: number;
   keepRecentMessages?: number;
+  /**
+   * Estimated token budget consumed by the system prompt (memory, tools,
+   * personality, knowledge map, etc.) that is NOT captured by estimateTokens(history).
+   * Added to the history estimate before comparing against thresholdTokens so
+   * compaction fires based on total request size rather than history alone.
+   * Default: 10000 (conservative estimate for a typical fully-loaded system prompt).
+   */
+  systemPromptOverhead?: number;
 };
 
 export function needCompaction(params: {
@@ -26,11 +34,12 @@ export function needCompaction(params: {
 
   if (config?.enabled === false) return false;
 
-  const thresholdTokens = config?.thresholdTokens ?? 6000;
+  const thresholdTokens = config?.thresholdTokens ?? 30000;
   const keepRecentMessages = config?.keepRecentMessages ?? 10;
+  const systemPromptOverhead = config?.systemPromptOverhead ?? 10000;
 
   const history = sessions.getHistory(session);
-  const estimated = context.estimateTokens(history);
+  const estimated = context.estimateTokens(history) + systemPromptOverhead;
 
   if (estimated <= thresholdTokens) return false;
   if (history.length <= keepRecentMessages) return false;
@@ -65,18 +74,19 @@ export async function compactSessionIfNeeded(params: {
 
   if (config?.enabled === false) return;
 
-  const thresholdTokens = config?.thresholdTokens ?? 6000;
+  const thresholdTokens = config?.thresholdTokens ?? 30000;
   const keepRecentMessages = config?.keepRecentMessages ?? 10;
+  const systemPromptOverhead = config?.systemPromptOverhead ?? 10000;
 
   const history = sessions.getHistory(session);
-  const estimated = context.estimateTokens(history);
+  const estimated = context.estimateTokens(history) + systemPromptOverhead;
 
   if (!force && estimated <= thresholdTokens) return;
   if (history.length <= keepRecentMessages) return;
   if (force) {
     logger.debug("Force-compacting session after topic shift");
   } else {
-    logger.debug(`Context window is running low ${thresholdTokens} < ${estimated}`);
+    logger.debug(`Compacting: total estimated ${estimated} tokens (history ${estimated - systemPromptOverhead} + system overhead ${systemPromptOverhead}) exceeds threshold ${thresholdTokens}`);
   }
 
   const toSummarize = history.slice(0, history.length - keepRecentMessages);

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { readdir } from "node:fs/promises";
 import { join, resolve, basename } from "node:path";
+import type { EmailStore } from "src/email/store.js";
 import OpenAI from "openai";
 import * as sqliteVec from "sqlite-vec";
 import { Logger } from "src/utils/logger.js";
@@ -321,8 +322,8 @@ export class DocStore {
     return { path: absPath, status: "indexed", chunks: chunks.length };
   }
 
-  /** Recursively walk configured paths and index all supported files. */
-  async indexAll(force = false): Promise<{ indexed: number; skipped: number; errors: string[] }> {
+  /** Recursively walk configured paths and index all supported files. Optionally indexes emails too. */
+  async indexAll(force = false, emailStore?: EmailStore): Promise<{ indexed: number; skipped: number; errors: string[] }> {
     const pathList = this.config.paths.map(docPath => docPath.path);
     const files = await this.collectFiles(pathList);
     let indexed = 0, skipped = 0;
@@ -338,7 +339,95 @@ export class DocStore {
     const pruned = this.pruneDeleted(files);
     if (pruned > 0) this.logger.debug(`Pruned ${pruned} deleted files from index`);
 
+    if (emailStore) {
+      const emailResult = await this.indexEmails(emailStore, force);
+      indexed += emailResult.indexed;
+      errors.push(...emailResult.errors);
+    }
+
     return { indexed, skipped, errors };
+  }
+
+  /** Embed unindexed emails from the email store and insert into the vector index. */
+  async indexEmails(emailStore: EmailStore, force = false): Promise<{ indexed: number; errors: string[] }> {
+    const emails = force ? emailStore.list({ limit: 10000 }) : emailStore.listUnindexed(100);
+    let indexed = 0;
+    const errors: string[] = [];
+    const indexedIds: number[] = [];
+
+    const upsertFile   = this.db.prepare(`
+      INSERT INTO doc_files (path, file_hash, chunks, indexed_at)
+      VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      ON CONFLICT(path) DO UPDATE SET
+        file_hash  = excluded.file_hash,
+        chunks     = excluded.chunks,
+        indexed_at = excluded.indexed_at
+    `);
+    const getOldIds    = this.db.prepare("SELECT id FROM doc_chunks WHERE path = ?");
+    const deleteChunks = this.db.prepare("DELETE FROM doc_chunks WHERE path = ?");
+    const insertChunk  = this.db.prepare(
+      "INSERT INTO doc_chunks (path, chunk_index, content, embedding) VALUES (?, ?, ?, ?)"
+    );
+    const insertVec    = this.db.prepare(
+      "INSERT INTO vec_chunks(rowid, embedding) VALUES (?, ?)"
+    );
+
+    for (const email of emails) {
+      const path = `email:${email.id}`;
+      const content = [
+        `Subject: ${email.subject}`,
+        `From: ${email.from_addr}`,
+        `To: ${email.to_addr}`,
+        `Date: ${email.received_at}`,
+        "",
+        email.raw_body || email.body,
+      ].join("\n");
+
+      try {
+        const contentHash = createHash("sha256").update(content).digest("hex");
+
+        if (!force) {
+          const existing = this.db
+            .prepare("SELECT file_hash FROM doc_files WHERE path = ?")
+            .get(path) as { file_hash: string } | undefined;
+          if (existing?.file_hash === contentHash) continue;
+        }
+
+        const chunks = chunkText(content, this.config.chunkSize, this.config.chunkOverlap);
+        if (chunks.length === 0) continue;
+
+        const embeddings: number[][] = [];
+        for (let i = 0; i < chunks.length; i += EMBED_BATCH_SIZE) {
+          const batch = chunks.slice(i, i + EMBED_BATCH_SIZE);
+          const vecs = await this.embed(batch, this.config.embeddingModel);
+          embeddings.push(...vecs);
+        }
+
+        this.db.transaction(() => {
+          upsertFile.run(path, contentHash, chunks.length);
+          const oldIds = (getOldIds.all(path) as { id: number }[]).map(r => r.id);
+          if (oldIds.length > 0) {
+            this.db.prepare(
+              `DELETE FROM vec_chunks WHERE rowid IN (${oldIds.map(() => "?").join(",")})`
+            ).run(...oldIds);
+          }
+          deleteChunks.run(path);
+          for (let i = 0; i < chunks.length; i++) {
+            const { lastInsertRowid } = insertChunk.run(path, i, chunks[i], encodeEmbedding(embeddings[i]));
+            insertVec.run(BigInt(lastInsertRowid), normalizeVec(embeddings[i]));
+          }
+        })();
+
+        indexedIds.push(email.id);
+        indexed++;
+      } catch (err) {
+        errors.push(`email:${email.id}: ${String(err)}`);
+      }
+    }
+
+    if (indexedIds.length > 0) emailStore.markIndexed(indexedIds);
+    this.logger.debug(`Indexed ${indexed} emails`);
+    return { indexed, errors };
   }
 
   /** Remove a single file from the index by its absolute path. Returns true if found and removed. */
@@ -359,7 +448,7 @@ export class DocStore {
     const existing = (currentFiles ?? []).map(f => resolve(f));
     const stored = (this.db.prepare("SELECT path FROM doc_files").all() as { path: string }[])
       .map(r => r.path);
-    const toDelete = stored.filter(p => !existing.includes(p));
+    const toDelete = stored.filter(p => !p.startsWith("email:") && !existing.includes(p));
 
     for (const p of toDelete) {
       // Must delete from vec_chunks before doc_files cascades to doc_chunks.
@@ -436,7 +525,14 @@ export class DocStore {
     return (this.db.prepare(
       "SELECT path, file_hash, chunks, indexed_at FROM doc_files ORDER BY indexed_at DESC"
     ).all() as { path: string; file_hash: string; chunks: number; indexed_at: string }[])
-      .map(r => ({ path: r.path, fileHash: r.file_hash, chunks: r.chunks, indexedAt: r.indexed_at, pathObject: findPathEntry(this.config.paths, r.path), fileName: basename(r.path) }));
+      .map(r => ({
+        path: r.path,
+        fileHash: r.file_hash,
+        chunks: r.chunks,
+        indexedAt: r.indexed_at,
+        pathObject: r.path.startsWith("email:") ? { name: "Email", path: "email:" } : findPathEntry(this.config.paths, r.path),
+        fileName: r.path.startsWith("email:") ? r.path.slice("email:".length) : basename(r.path),
+      }));
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

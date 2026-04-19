@@ -14,6 +14,8 @@ import { Session } from "src/session/manager.js";
 import { Logger } from "src/utils/logger.js";
 import { SpawnTool } from "./tools/spawn.js";
 import { DocStore } from "src/docs/store.js";
+import { EmailStore } from "src/email/store.js";
+import { EmailArchiveProvider } from "./tools/email-archive.js";
 import { SubagentManager } from "./subagent.js";
 import { ConfigService } from "src/config/service.js";
 import { CronTool } from "./tools/cron.js";
@@ -74,6 +76,8 @@ type MessageToolHintsResolver = (params: {
 export class Agent {
     /** Exposed for the REST API — only set when tools.docs.enabled = true. */
     public docStore?: DocStore;
+    /** Exposed for the REST API and DocStore email indexing — set when IMAP is configured. */
+    public emailStore?: EmailStore;
     /** Exposed for context injection and REST API — always set after init. */
     public goalsService?: GoalsService;
     private calendarAwareness?: CalendarAwareness;
@@ -90,7 +94,7 @@ export class Agent {
     private manifestService: SkillManifestService;
     private sanitizer: OutputSanitizer;
     private workspace: string;
-    private usageService: UsageService;
+    public usageService: UsageService;
     private isSecManagerEnabled: boolean;
     private workflowService: WorkflowService;
     /** Services bundle passed to every ToolProvider. */
@@ -163,6 +167,12 @@ export class Agent {
         this.personalityService = personalityService;
         this.sanitizer = new OutputSanitizer();
 
+        // Create EmailStore early so it's available to both ImapProvider and EmailArchiveProvider.
+        const imapCfg = appConfig.tools?.imap;
+        if (imapCfg?.host && imapCfg?.user) {
+            this.emailStore = new EmailStore(workspace);
+        }
+
         // Build the services bundle used by all providers.
         this.agentServices = {
             workspace,
@@ -177,6 +187,7 @@ export class Agent {
             subagents: this.subagents,
             usageService: this.usageService,
             isSecManagerEnabled: this.isSecManagerEnabled,
+            emailStore: this.emailStore,
         };
 
         // Register all built-in providers and do the initial sync.
@@ -186,6 +197,7 @@ export class Agent {
         this.tools.addProvider(new WebProvider());
         this.tools.addProvider(new DocsProvider());
         this.tools.addProvider(new ImapProvider());
+        this.tools.addProvider(new EmailArchiveProvider());
         this.tools.addProvider(new CalDavProvider());
         this.tools.addProvider(new BrowserProvider());
         this.tools.addProvider(new ContactsProvider());
@@ -205,8 +217,10 @@ export class Agent {
         // ToolSearchTool needs a reference to the registry itself — register after sync.
         this.tools.register(new ToolSearchTool(this.tools));
 
-        // Expose docStore for the REST API.
+        // Expose docStore + emailStore for the REST API and cross-provider use.
         this.docStore = this.tools.getProvider<DocsProvider>("docs")?.docStore;
+        // Inject docStore into agentServices so EmailArchiveProvider can use it for semantic search.
+        if (this.docStore) this.agentServices.docStore = this.docStore;
 
         // Expose goalsService for context injection and REST API.
         this.goalsService = this.tools.getProvider<GoalsProvider>("goals")?.goalsService;
@@ -342,6 +356,22 @@ export class Agent {
         this.running = false;
     }
 
+    getDebugPrompt(): { systemPrompt: string; estimatedTokens: number; toolCount: number; toolDefsTokens: number; totalEstimatedTokens: number; toolNames: string[] } {
+        const defs = this.tools.getDefinitions();
+        const toolNames = defs.map(t => (t.function as Record<string, unknown>)?.name as string).filter(Boolean);
+        const systemPrompt = this.context.buildSystemPrompt(undefined, undefined, undefined, toolNames, this.personalityService.buildPersonalityPrompt());
+        const systemTokens = this.context.estimateTokens([{ role: "system", content: systemPrompt }]);
+        const toolDefsTokens = Math.ceil(JSON.stringify(defs).length / 4);
+        return {
+            systemPrompt,
+            estimatedTokens: systemTokens,
+            toolDefsTokens,
+            totalEstimatedTokens: systemTokens + toolDefsTokens,
+            toolCount: defs.length,
+            toolNames,
+        };
+    }
+
     private async compactSessionIfNeeded(session: Session): Promise<void> {
         await compactSessionIfNeeded({
             session,
@@ -379,6 +409,20 @@ export class Agent {
             if (group.members.includes(defaultKey)) return `group:${group.name}`;
         }
         return defaultKey;
+    }
+
+    /**
+     * Appends a user/assistant exchange to a channel session so background
+     * work (cron, subagents) is visible in subsequent user conversations.
+     * Respects session groups — the key is resolved before writing.
+     */
+    mirrorToSession(channel: string, chatId: string, userContent: string, assistantContent: string): void {
+        const key = this.resolveSessionKey(`${channel}:${chatId}`);
+        const session = this.sessions.getOrCreate(key);
+        this.sessions.addMessage(session, "user", userContent);
+        this.sessions.addMessage(session, "assistant", assistantContent);
+        this.sessions.save(session);
+        this.logger.debug("Mirrored cron exchange to session", { key });
     }
 
     /**
@@ -457,6 +501,7 @@ export class Agent {
             tools: this.tools,
             providerManager: this.options.providerManager,
             maxIterations: this.options.maxIterations ?? 20,
+            maxTokens: this.options.config?.agents.defaults.maxTokens,
             reasoningEffortLevels,
             securityManager,
             toolContext,

@@ -17,6 +17,6 @@ export class ContactsProvider implements ToolProvider {
       new ContactSaveTool(this.store),
       new ContactSearchTool(this.store),
       new ContactDeleteTool(this.store),
-    ];
+    ].map(t => t.markContextual());
   }
 }

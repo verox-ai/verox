@@ -174,9 +174,12 @@ export class CronService {
       this.logger.debug(`Running direct Message to the agent ${entry.prompt}`);
       const response = await this.agent.processDirect({
         content: entry.prompt,
-        channel: firstTarget?.channel ?? "system",
-        chatId: firstTarget?.chatId ?? "cron",
+        channel: "system",
+        chatId: `cron:${id}`,
         sessionKey: `cron:${id}`,
+        messageToolHints: [
+          "You are executing a scheduled cron task. Return your response as plain text — the system will route it to all configured targets automatically. Do NOT use the message tool. Do NOT say 'I posted to Slack' or similar — just return the content.",
+        ],
         metadata: { sessionless: true }
       });
       if (!response) return;
@@ -189,6 +192,13 @@ export class CronService {
           media: [],
           metadata: { source: "cron", cronId: id }
         });
+        // Mirror the exchange into the target's session so the agent has
+        // context about what this cron posted when the user replies there.
+        this.agent.mirrorToSession(
+          target.channel, target.chatId,
+          `[Cron: ${id}] ${entry.prompt}`,
+          response
+        );
       }
     } catch (err) {
       this.logger.error("Cron tick failed", { id, error: String(err) });

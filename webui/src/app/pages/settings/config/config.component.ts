@@ -162,7 +162,7 @@ interface SectionDef {
                     placeholder="KEY=value (one per line)"></textarea>
                 }
                 @case ('number') {
-                  <input class="input" type="number" [value]="n(field.path)" (input)="onNum(field.path,$event)">
+                  <input class="input" type="text" inputmode="decimal" [value]="n(field.path)" (blur)="onNum(field.path,$event)">
                 }
                 @default {
                   <input class="input" [type]="field.type" [value]="s(field.path)"
@@ -388,8 +388,9 @@ export class ConfigComponent implements OnInit {
     this.set(field.path, field.nullable && !v.trim() ? null : v);
   }
   onNum(path: string, e: Event): void {
-    const v = parseFloat((e.target as HTMLInputElement).value);
-    this.set(path, isNaN(v) ? 0 : v);
+    const raw = (e.target as HTMLInputElement).value.trim();
+    const v = parseFloat(raw);
+    this.set(path, isNaN(v) ? null : v);
   }
   onBool(path: string, e: Event): void { this.set(path, (e.target as HTMLInputElement).checked); }
   onSelect(field: FieldDef, e: Event): void {

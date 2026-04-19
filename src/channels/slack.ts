@@ -114,14 +114,15 @@ export class SlackChannel extends BaseChannel<Config["channels"]["slack"]> {
     }
 
     if (msg.buttons && msg.buttons.length > 0) {
+      const btnText = msg.content?.trim() || "Choose an option:";
       await this.webClient.chat.postMessage({
         channel,
-        text: msg.content ?? "",
+        text: btnText,
         thread_ts: useThread ? threadTs : undefined,
         blocks: [
           {
             type: "section",
-            text: { type: "mrkdwn", text: msg.content ?? "" }
+            text: { type: "mrkdwn", text: btnText }
           },
           {
             type: "actions",
@@ -137,7 +138,7 @@ export class SlackChannel extends BaseChannel<Config["channels"]["slack"]> {
     } else {
       await this.webClient.chat.postMessage({
         channel: channel,
-        text: msg.content ?? "",
+        text: msg.content?.trim() || "\u200b",
         thread_ts: useThread ? threadTs : undefined
       });
     }

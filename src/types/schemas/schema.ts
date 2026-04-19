@@ -124,8 +124,9 @@ export const ContextConfigSchema = z.object({
 
 export const CompactionConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  thresholdTokens: z.number().int().default(6000),
-  keepRecentMessages: z.number().int().default(10)
+  thresholdTokens: z.number().int().default(30000),
+  keepRecentMessages: z.number().int().default(10),
+  systemPromptOverhead: z.number().int().default(10000),
 });
 
 export const MemoryExtractionConfigSchema = z.object({
@@ -182,7 +183,11 @@ export const ProviderConfigSchema = z.object({
    * accumulate. Allows fast responses for simple tasks and deep thinking for
    * hard ones without manual switching.
    */
-  adaptiveReasoning: z.boolean().default(false)
+  adaptiveReasoning: z.boolean().default(false),
+  /** Cost in USD per 1 million input (prompt) tokens. Used for usage cost estimation. */
+  costPer1MInput: z.number().nullable().default(null),
+  /** Cost in USD per 1 million output (completion) tokens. Used for usage cost estimation. */
+  costPer1MOutput: z.number().nullable().default(null),
 });
 
 export const ProvidersConfigSchema = z.object({
@@ -293,6 +298,11 @@ export const DocStoreConfigSchema = z.object({
    * Null / empty = disabled. Use alongside `uploadSkipIndex` to index from the Paperless output library instead.
    */
   indexCronSchedule: z.string().nullable().default(null),
+  /**
+   * When true, emails saved via email_save are embedded by the doc store during index runs,
+   * enabling semantic (vector) search in email_search. Requires indexCronSchedule to be set.
+   */
+  indexEmails: z.boolean().default(false),
 });
 
 export const CalDavConfigSchema = z.object({

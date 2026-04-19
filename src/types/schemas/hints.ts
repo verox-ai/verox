@@ -40,6 +40,8 @@ const FIELD_PLACEHOLDERS: Record<string, string> = {
   "ui.host": "127.0.0.1",
   "ui.port": "18791",
   "providers.*.apiBase": "https://api.example.com",
+  "providers.*.costPer1MInput": "e.g. 3.00",
+  "providers.*.costPer1MOutput": "e.g. 15.00",
   "providers.minimax.apiBase": "CN: https://api.minimaxi.com/v1; Global: https://api.minimax.io/v1"
 };
 

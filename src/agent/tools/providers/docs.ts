@@ -31,7 +31,7 @@ export class DocsProvider implements ToolProvider {
       new DocsListTool(this.docStore),
       new DocGetTool(this.docStore),
       new DocsUploadTool(this.docStore, uploadPath, services.workspace, docsCfg.uploadSkipIndex ?? false),
-    ];
+    ].map(t => t.markContextual());
   }
 
   onConfigChange(_config: Config): void {
